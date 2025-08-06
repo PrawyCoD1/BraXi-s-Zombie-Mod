@@ -42,26 +42,40 @@ bot_think_loop()
 
 zombie_bot_logic()
 {
-    // Check if zombie is stuck
-    currentDist = distance(self.origin, self.lastPosition);
-    if (currentDist < 10) // Barely moved
-    {
-        if (getTime() - self.stuckTime > 3000) // Stuck for 3 seconds
-        {
-            self.currentWaypoint = randomInt(level.waypoints.size);
-            self.stuckTime = getTime();
-            
-            // Force movement in random direction
-            randomAngle = randomInt(360);
-            self setPlayerAngles((0, randomAngle, 0));
-            self setWalkDir("forward");
-        }
-    }
-    else
-    {
-        self.lastPosition = self.origin;
-        self.stuckTime = getTime();
-    }
+         // Check if zombie is stuck
+     currentDist = distance(self.origin, self.lastPosition);
+     if (currentDist < 10) // Barely moved
+     {
+         if (getTime() - self.stuckTime > 1500) // Stuck for 1.5 seconds (reduced further)
+         {
+             // Force stop current movement and reset everything
+             self setWalkDir("none");
+             wait 0.2; // Longer delay to ensure complete stop
+             
+             // Pick a completely new random waypoint
+             self.currentWaypoint = randomInt(level.waypoints.size);
+             self.stuckTime = getTime();
+             self.waypointStartTime = getTime(); // Reset waypoint timer too
+             
+             // Force movement in completely random direction (not towards waypoint)
+             randomAngle = randomInt(360);
+             self setPlayerAngles((0, randomAngle, 0));
+             wait 0.1; // Longer delay to ensure direction change
+             
+             // Force forward movement in random direction
+             self setWalkDir("forward");
+             
+             iPrintlnBold("Bot " + self.name + " was stuck, forcing random direction " + randomAngle);
+             
+             // Don't continue with normal logic for a moment to let the forced movement work
+             return;
+         }
+     }
+     else
+     {
+         self.lastPosition = self.origin;
+         self.stuckTime = getTime();
+     }
     
     // Find nearest visible hunter
     nearestHunter = self find_nearest_visible_hunter();
@@ -79,32 +93,51 @@ zombie_bot_logic()
     {
         dist = distance(self.origin, nearestHunter.origin);
         
-        if (dist < 60) // Close enough for melee attack (reduced from 100)
-        {
-            // Face the hunter
-            targetVector = nearestHunter.origin - self.origin;
-            if (isDefined(targetVector))
-            {
-                targetAngles = vectorToAngles(targetVector);
-                self setPlayerAngles(targetAngles);
-            }
-            
-            // Stop moving and melee attack
-            self setWalkDir("none");
-            
-            // Melee attack
-            if (!isDefined(self.lastMeleeTime))
-                self.lastMeleeTime = 0;
-                
-            currentTime = getTime();
-            if (currentTime - self.lastMeleeTime > 500) // Melee every 500ms
-            {
-                self meleeWeapon(true);
-                wait 0.1;
-                self meleeWeapon(false);
-                self.lastMeleeTime = currentTime;
-            }
-        }
+                 if (dist < 60) // Close enough for melee attack (reduced from 100)
+         {
+             // Check if we can actually reach the hunter for melee (no wall between us)
+             meleeTrace = bulletTrace(self.origin + (0,0,50), nearestHunter.origin + (0,0,50), false, self);
+             if (isDefined(meleeTrace["fraction"]) && meleeTrace["fraction"] > 0.8) // Almost clear path for melee
+             {
+                 // Face the hunter
+                 targetVector = nearestHunter.origin - self.origin;
+                 if (isDefined(targetVector))
+                 {
+                     targetAngles = vectorToAngles(targetVector);
+                     self setPlayerAngles(targetAngles);
+                 }
+                 
+                 // Stop moving and melee attack
+                 self setWalkDir("none");
+                 
+                 // Melee attack
+                 if (!isDefined(self.lastMeleeTime))
+                     self.lastMeleeTime = 0;
+                     
+                 currentTime = getTime();
+                 if (currentTime - self.lastMeleeTime > 500) // Melee every 500ms
+                 {
+                     self meleeWeapon(true);
+                     wait 0.1;
+                     self meleeWeapon(false);
+                     self.lastMeleeTime = currentTime;
+                 }
+             }
+             else
+             {
+                 // Can't melee through wall, move towards hunter using waypoints
+                 bestWaypoint = self find_best_waypoint_towards_target(nearestHunter);
+                 if (isDefined(bestWaypoint))
+                 {
+                     self move_to_waypoint(bestWaypoint);
+                 }
+                 else
+                 {
+                     // If no good waypoint found, try to move around obstacles
+                     self find_alternative_path();
+                 }
+             }
+         }
             else // Too far, move towards hunter using waypoints
     {
         // Use waypoint pathfinding instead of direct movement
@@ -182,22 +215,45 @@ hunter_bot_logic()
                 self.lastMeleeTime = currentTime;
             }
         }
-        else if (dist < 200) // Close enough to shoot (increased range)
-        {
-            // Set combat mode
-            self.inCombat = true;
-            
-            // Face the zombie more precisely - aim at their actual position
-            targetVector = nearestZombie.origin - self.origin;
-            if (isDefined(targetVector))
-            {
-                targetAngles = vectorToAngles(targetVector);
-                // Set both pitch and yaw for better aiming
-                self setPlayerAngles(targetAngles);
-            }
-            
-            // Stop moving to aim better
-            self setWalkDir("none");
+                 else if (dist < 200) // Close enough to shoot (increased range)
+         {
+             // Set combat mode
+             self.inCombat = true;
+             
+             // Face the zombie more precisely - aim at their actual position
+             targetVector = nearestZombie.origin - self.origin;
+             if (isDefined(targetVector))
+             {
+                 targetAngles = vectorToAngles(targetVector);
+                 // Set both pitch and yaw for better aiming
+                 self setPlayerAngles(targetAngles);
+             }
+             
+                           // Tactical movement: move away from zombie while shooting
+              if (dist < 80) // Very close - retreat backwards
+              {
+                  // Move backwards away from zombie
+                  self setWalkDir("back");
+                  iPrintlnBold("Hunter " + self.name + " retreating from zombie at distance " + dist);
+              }
+              else if (dist < 120) // Medium distance - strafe to avoid being hit
+              {
+                  // Strafe left or right randomly to avoid being predictable
+                  if (randomInt(2) == 0)
+                  {
+                      self setWalkDir("left");
+                      iPrintlnBold("Hunter " + self.name + " strafing left from zombie at distance " + dist);
+                  }
+                  else
+                  {
+                      self setWalkDir("right");
+                      iPrintlnBold("Hunter " + self.name + " strafing right from zombie at distance " + dist);
+                  }
+              }
+              else // Far enough - stop to aim better
+              {
+                  self setWalkDir("none");
+              }
             
             // Shoot with cooldown
             currentTime = getTime();
@@ -340,9 +396,9 @@ find_nearest_visible_hunter()
             dist = distance(self.origin, player.origin);
             if(dist < minDist)
             {
-                // Check line of sight
-                trace = bulletTrace(self.origin + (0,0,50), player.origin + (0,0,50), false, self);
-                if(isDefined(trace["fraction"]) && trace["fraction"] > 0.3) // Hunter is visible
+                                 // Check line of sight - more strict to prevent seeing through walls
+                 trace = bulletTrace(self.origin + (0,0,50), player.origin + (0,0,50), false, self);
+                 if(isDefined(trace["fraction"]) && trace["fraction"] > 0.7) // Hunter is visible (more strict)
                 {
                     minDist = dist;
                     nearest = player;
@@ -436,76 +492,112 @@ move_to_waypoint(waypointIndex)
         return;
     }
     
-    // Check if we've been trying to reach this waypoint for too long (5 seconds)
-    if (getTime() - self.waypointStartTime > 5000)
-    {
-        if (self.pers["team"] == "allies")
-        {
-            // Only pick new camp spot if we're really stuck and can't reach current one
-            self.campWaypoint = self find_random_camp_waypoint();
-            iPrintlnBold("Bot " + self.name + " camp waypoint timeout, picking new camp spot");
-        }
-        else
-        {
-            self.currentWaypoint = randomInt(level.waypoints.size);
-            if (!isDefined(self.currentWaypoint))
-                self.currentWaypoint = 0;
-        }
-        self.waypointStartTime = getTime();
-        return;
-    }
+         // Check if we've been trying to reach this waypoint for too long (3 seconds - reduced)
+     if (getTime() - self.waypointStartTime > 3000)
+     {
+         // Force stop current movement to break any stuck loops
+         self setWalkDir("none");
+         wait 0.2; // Longer delay
+         
+         if (self.pers["team"] == "allies")
+         {
+             // Only pick new camp spot if we're really stuck and can't reach current one
+             self.campWaypoint = self find_random_camp_waypoint();
+             iPrintlnBold("Bot " + self.name + " camp waypoint timeout, picking new camp spot");
+         }
+         else
+         {
+             // For zombies, force a completely new random waypoint and direction
+             self.currentWaypoint = randomInt(level.waypoints.size);
+             if (!isDefined(self.currentWaypoint))
+                 self.currentWaypoint = 0;
+             
+             // Force random direction movement
+             randomAngle = randomInt(360);
+             self setPlayerAngles((0, randomAngle, 0));
+             wait 0.1;
+             self setWalkDir("forward");
+             
+             iPrintlnBold("Bot " + self.name + " waypoint timeout, forcing new direction " + randomAngle);
+         }
+         self.waypointStartTime = getTime();
+         return;
+     }
     
-    // Calculate direction and move
-    if (isDefined(dir))
-    {
-        targetDirection = vectorToAngles(vectorNormalize(dir));
-        self setPlayerAngles((0, targetDirection[1], 0));
-    }
-    else
-    {
-        return;
-    }
+         // Calculate direction and move
+     if (isDefined(dir))
+     {
+         targetDirection = vectorToAngles(vectorNormalize(dir));
+         self setPlayerAngles((0, targetDirection[1], 0));
+         
+         // Force a small delay to ensure direction change takes effect
+         wait 0.05;
+     }
+     else
+     {
+         return;
+     }
     
-    // Check if path is clear - more strict checking
-    eye = self.origin + (0, 0, 60);
-    forward = anglesToForward(self getPlayerAngles());
-    if (isDefined(forward))
-    {
-        trace = bulletTrace(eye, eye + (forward[0] * 50, forward[1] * 50, forward[2] * 50), false, self);
-    }
-    else
-    {
-        return;
-    }
-    
-    if (isDefined(trace["fraction"]) && trace["fraction"] >= 0.7) // More strict path checking
-    {
-        // Don't move if in combat mode (hunters)
-        if (self.pers["team"] == "allies" && isDefined(self.inCombat) && self.inCombat)
-        {
-            return; // Stay still and keep aiming
-        }
-        
-        self setWalkDir("forward");
-        //iPrintlnBold("Bot " + self.name + " moving to waypoint " + waypointIndex);
-    }
-    else // Path blocked, try to find alternative
-    {
-        // If path is blocked, pick a new waypoint instead of just strafing
-        if (self.pers["team"] == "allies")
-        {
-            // Only pick new camp spot if path is completely blocked
-            self.campWaypoint = self find_random_camp_waypoint();
-            iPrintlnBold("Bot " + self.name + " path to camp blocked, picking new camp spot");
-        }
-        else
-        {
-            self.currentWaypoint = randomInt(level.waypoints.size);
-            if (!isDefined(self.currentWaypoint))
-                self.currentWaypoint = 0;
-            iPrintlnBold("Bot " + self.name + " path blocked, picking new waypoint " + self.currentWaypoint);
-        }
-    }
+         // Check if path is clear - more lenient checking
+     eye = self.origin + (0, 0, 60);
+     forward = anglesToForward(self getPlayerAngles());
+     if (isDefined(forward))
+     {
+         trace = bulletTrace(eye, eye + (forward[0] * 50, forward[1] * 50, forward[2] * 50), false, self);
+     }
+     else
+     {
+         return;
+     }
+     
+          if (isDefined(trace["fraction"]) && trace["fraction"] >= 0.5) // More lenient path checking
+     {
+         // Allow movement even in combat mode for tactical positioning
+         if (self.pers["team"] == "allies" && isDefined(self.inCombat) && self.inCombat)
+         {
+             // Hunters in combat can still move to waypoints for tactical positioning
+             // But prioritize tactical movement over waypoint movement
+             // (tactical movement is set in hunter_bot_logic, so don't override it here)
+             return; // Don't move to waypoint if in tactical combat
+         }
+         else
+         {
+             self setWalkDir("forward");
+         }
+         //iPrintlnBold("Bot " + self.name + " moving to waypoint " + waypointIndex);
+     }
+         else // Path blocked, try to find alternative
+     {
+         // Force stop current movement to break any stuck loops
+         self setWalkDir("none");
+         wait 0.2; // Longer delay
+         
+         // If path is blocked, pick a new waypoint instead of just strafing
+         if (self.pers["team"] == "allies")
+         {
+             // Only pick new camp spot if path is completely blocked
+             self.campWaypoint = self find_random_camp_waypoint();
+             iPrintlnBold("Bot " + self.name + " path to camp blocked, picking new camp spot");
+         }
+         else
+         {
+             // For zombies, force a completely new random waypoint and direction
+             self.currentWaypoint = randomInt(level.waypoints.size);
+             if (!isDefined(self.currentWaypoint))
+                 self.currentWaypoint = 0;
+             
+             // Force random direction movement to break out of stuck state
+             randomAngle = randomInt(360);
+             self setPlayerAngles((0, randomAngle, 0));
+             wait 0.1;
+             self setWalkDir("forward");
+             
+             iPrintlnBold("Bot " + self.name + " path blocked, forcing new direction " + randomAngle + " to waypoint " + self.currentWaypoint);
+         }
+         
+         // Reset waypoint timer when picking new waypoint
+         self.waypointStartTime = getTime();
+     }
 }
 
 // Move towards target using waypoints (zombies)
@@ -573,17 +665,17 @@ find_best_waypoint_towards_target(target)
         // Calculate distance from waypoint to target
         wpToTargetDist = distance(level.waypoints[i].origin, target.origin);
         
-        // Check if waypoint is reachable
-        eye = self.origin + (0, 0, 60);
-        trace = bulletTrace(eye, level.waypoints[i].origin + (0,0,60), false, self);
-        if (isDefined(trace) && isDefined(trace["fraction"]))
-            reachable = trace["fraction"] > 0.7;
-        else
-            reachable = false;
-        
-        // Skip unreachable waypoints
-        if (!reachable)
-            continue;
+                 // Check if waypoint is reachable - more lenient
+         eye = self.origin + (0, 0, 60);
+         trace = bulletTrace(eye, level.waypoints[i].origin + (0,0,60), false, self);
+         if (isDefined(trace) && isDefined(trace["fraction"]))
+             reachable = trace["fraction"] > 0.3; // Much more lenient
+         else
+             reachable = true; // Assume reachable if trace fails
+         
+         // Only skip completely unreachable waypoints
+         if (!reachable)
+             continue;
         
                  // Calculate alignment with target direction (simplified dot product)
          if (isDefined(targetDir[0]) && isDefined(targetDir[1]) && isDefined(targetDir[2]) && 
@@ -651,9 +743,9 @@ find_best_waypoint_towards_target(target)
             if(!isDefined(level.waypoints[i]) || !isDefined(level.waypoints[i].origin))
                 continue;
                 
-            eye = self.origin + (0, 0, 60);
-            trace = bulletTrace(eye, level.waypoints[i].origin + (0,0,60), false, self);
-            if (isDefined(trace) && isDefined(trace["fraction"]) && trace["fraction"] > 0.5)
+                         eye = self.origin + (0, 0, 60);
+             trace = bulletTrace(eye, level.waypoints[i].origin + (0,0,60), false, self);
+             if (isDefined(trace) && isDefined(trace["fraction"]) && trace["fraction"] > 0.2)
             {
                 return i;
             }
