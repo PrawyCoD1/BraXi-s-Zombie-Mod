@@ -5,17 +5,23 @@
 // Initialize bot AI when bot spawns
 init_bot_ai()
 {
-    // Initialize bot variables
-    self.currentWaypoint = undefined;
-    self.campWaypoint = undefined;
-    self.lastMeleeTime = 0;
-    self.lastShootTime = 0;
-    self.lastPosition = self.origin;
-    self.stuckTime = getTime();
-    self.waypointStartTime = getTime();
-    self.inCombat = false;
-    
-    self thread bot_think_loop();
+         // Initialize bot variables
+     self.currentWaypoint = undefined;
+     self.campWaypoint = undefined;
+     self.lastMeleeTime = 0;
+     self.lastShootTime = 0;
+     self.lastPosition = self.origin;
+     self.stuckTime = getTime();
+     self.waypointStartTime = getTime();
+     self.inCombat = false;
+     
+     // Initialize camp waypoint for hunters immediately
+     if (self.pers["team"] == "allies")
+     {
+         self.campWaypoint = self find_random_camp_waypoint();
+     }
+     
+     self thread bot_think_loop();
 }
 
 // Main bot thinking loop
@@ -327,20 +333,31 @@ hunter_bot_logic()
                 self setAim(1);
             }
         }
-        else // Too far, move to camp spot
-        {
-            // Exit combat mode
-            self.inCombat = false;
-            
-            // Check if we have a camp spot
-            if (!isDefined(self.campWaypoint))
-            {
-                self.campWaypoint = self find_random_camp_waypoint();
-            }
-            
-            // Move to camp spot
-            self move_to_waypoint(self.campWaypoint);
-        }
+                 else // Too far, move to camp spot
+         {
+             // Exit combat mode
+             self.inCombat = false;
+             
+             // Check if we have a camp spot
+             if (!isDefined(self.campWaypoint))
+             {
+                 self.campWaypoint = self find_random_camp_waypoint();
+             }
+             
+             // Check if we're already close to camp spot
+             if (isDefined(self.campWaypoint) && isDefined(level.waypoints[self.campWaypoint]))
+             {
+                 campDist = distance(self.origin, level.waypoints[self.campWaypoint].origin);
+                 if (campDist < 100) // Already close to camp spot
+                 {
+                     self setWalkDir("none"); // Stop and camp
+                     return;
+                 }
+             }
+             
+             // Move to camp spot only if not already close
+             self move_to_waypoint(self.campWaypoint);
+         }
     }
     else // No zombies visible, stay at camp spot
     {
@@ -538,34 +555,50 @@ move_to_waypoint(waypointIndex)
          return;
      }
     
-         // Check if path is clear - more lenient checking
-     eye = self.origin + (0, 0, 60);
-     forward = anglesToForward(self getPlayerAngles());
-     if (isDefined(forward))
-     {
-         trace = bulletTrace(eye, eye + (forward[0] * 50, forward[1] * 50, forward[2] * 50), false, self);
-     }
-     else
-     {
-         return;
-     }
-     
-          if (isDefined(trace["fraction"]) && trace["fraction"] >= 0.5) // More lenient path checking
-     {
-         // Allow movement even in combat mode for tactical positioning
-         if (self.pers["team"] == "allies" && isDefined(self.inCombat) && self.inCombat)
-         {
-             // Hunters in combat can still move to waypoints for tactical positioning
-             // But prioritize tactical movement over waypoint movement
-             // (tactical movement is set in hunter_bot_logic, so don't override it here)
-             return; // Don't move to waypoint if in tactical combat
-         }
-         else
-         {
-             self setWalkDir("forward");
-         }
-         //iPrintlnBold("Bot " + self.name + " moving to waypoint " + waypointIndex);
-     }
+                   // Check if path is clear - much more lenient checking, especially for hunters at camp spots
+      eye = self.origin + (0, 0, 60);
+      forward = anglesToForward(self getPlayerAngles());
+      if (isDefined(forward))
+      {
+          trace = bulletTrace(eye, eye + (forward[0] * 50, forward[1] * 50, forward[2] * 50), false, self);
+      }
+      else
+      {
+          return;
+      }
+      
+      // Much more lenient path checking, especially when close to destination
+      pathClear = false;
+      if (isDefined(trace["fraction"]))
+      {
+          if (self.pers["team"] == "allies" && dist < 100) // Hunter close to camp spot
+          {
+              // Very lenient path checking when close to camp spot - almost always allow movement
+              pathClear = trace["fraction"] >= 0.1; // Only 10% clear path needed
+          }
+          else
+          {
+              // Normal path checking for other cases
+              pathClear = trace["fraction"] >= 0.5;
+          }
+      }
+      
+      if (pathClear)
+      {
+          // Allow movement even in combat mode for tactical positioning
+          if (self.pers["team"] == "allies" && isDefined(self.inCombat) && self.inCombat)
+          {
+              // Hunters in combat can still move to waypoints for tactical positioning
+              // But prioritize tactical movement over waypoint movement
+              // (tactical movement is set in hunter_bot_logic, so don't override it here)
+              return; // Don't move to waypoint if in tactical combat
+          }
+          else
+          {
+              self setWalkDir("forward");
+          }
+          //iPrintlnBold("Bot " + self.name + " moving to waypoint " + waypointIndex);
+      }
          else // Path blocked, try to find alternative
      {
          // Force stop current movement to break any stuck loops
