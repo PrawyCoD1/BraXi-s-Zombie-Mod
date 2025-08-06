@@ -792,8 +792,7 @@ spawnPlayer()
    self cleanUp();
    if(isDefined(self.isbot))
    {
-	   self thread init_bot_ai();
-	   self init_bot_waypoint();
+	   self thread maps\mp\gametypes\_bots::init_bot_ai();
    }
 	self clientCmd("bind 5 weaponslot smokegrenade");
 	self.disabled = false;
@@ -3196,18 +3195,18 @@ bot2()
 
 	hunterWeapons = [];
 	hunterWeapons[hunterWeapons.size] = "kar98k_mp";
-	hunterWeapons[hunterWeapons.size] = "mp40_mp";
-	hunterWeapons[hunterWeapons.size] = "mp44_mp";
+	//hunterWeapons[hunterWeapons.size] = "mp40_mp";
+	//hunterWeapons[hunterWeapons.size] = "mp44_mp";
     hunterWeapons[hunterWeapons.size] = "kar98k_sniper_mp";
     hunterWeapons[hunterWeapons.size] = "enfield_mp";
-    hunterWeapons[hunterWeapons.size] = "sten_mp";
+    //hunterWeapons[hunterWeapons.size] = "sten_mp";
     hunterWeapons[hunterWeapons.size] = "springfield_mp";
-    hunterWeapons[hunterWeapons.size] = "m1carbine_mp";
-    hunterWeapons[hunterWeapons.size] = "m1garand_mp";
-    hunterWeapons[hunterWeapons.size] = "thompson_mp";
-    hunterWeapons[hunterWeapons.size] = "bar_mp";
+   // hunterWeapons[hunterWeapons.size] = "m1carbine_mp";
+    //hunterWeapons[hunterWeapons.size] = "m1garand_mp";
+    //hunterWeapons[hunterWeapons.size] = "thompson_mp";
+   // hunterWeapons[hunterWeapons.size] = "bar_mp";
     hunterWeapons[hunterWeapons.size] = "mosin_nagant_mp";
-    hunterWeapons[hunterWeapons.size] = "ppsh_mp";
+    //hunterWeapons[hunterWeapons.size] = "ppsh_mp";
     hunterWeapons[hunterWeapons.size] = "mosin_nagant_sniper_mp";
 
 	zombieWeapons = [];
