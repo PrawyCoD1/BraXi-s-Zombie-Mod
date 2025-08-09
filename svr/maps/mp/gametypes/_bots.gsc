@@ -146,17 +146,17 @@ zombie_bot_logic()
          }
             else // Too far, move towards hunter using waypoints
     {
-        // Use waypoint pathfinding instead of direct movement
-        bestWaypoint = self find_best_waypoint_towards_target(nearestHunter);
-        if (isDefined(bestWaypoint))
-        {
-            self move_to_waypoint(bestWaypoint);
-        }
-        else
-        {
-            // If no good waypoint found, try to move around obstacles
-            self find_alternative_path();
-        }
+                 // Find the nearest waypoint to the hunter and go there
+         hunterNearestWaypoint = self find_nearest_waypoint_to_target(nearestHunter);
+         if (isDefined(hunterNearestWaypoint))
+         {
+             self move_to_waypoint(hunterNearestWaypoint);
+         }
+         else
+         {
+             // If no good waypoint found, try to move around obstacles
+             self find_alternative_path();
+         }
     }
     }
     else // No hunters visible, patrol randomly
@@ -344,16 +344,17 @@ hunter_bot_logic()
                  self.campWaypoint = self find_random_camp_waypoint();
              }
              
-             // Check if we're already close to camp spot
-             if (isDefined(self.campWaypoint) && isDefined(level.waypoints[self.campWaypoint]))
-             {
-                 campDist = distance(self.origin, level.waypoints[self.campWaypoint].origin);
-                 if (campDist < 100) // Already close to camp spot
-                 {
-                     self setWalkDir("none"); // Stop and camp
-                     return;
-                 }
-             }
+                           // Check if we're already close to camp spot
+              if (isDefined(self.campWaypoint) && isDefined(level.waypoints[self.campWaypoint]))
+              {
+                  campDist = distance(self.origin, level.waypoints[self.campWaypoint].origin);
+                  if (campDist < 100) // Already close to camp spot
+                  {
+                      self setWalkDir("none"); // Stop and camp
+                      self.waypointStartTime = getTime(); // Reset waypoint timer to prevent timeout
+                      return;
+                  }
+              }
              
              // Move to camp spot only if not already close
              self move_to_waypoint(self.campWaypoint);
@@ -369,16 +370,17 @@ hunter_bot_logic()
             self.campWaypoint = self find_random_camp_waypoint();
         }
         
-        // If we're close to camp spot, just stay there
-        if (isDefined(self.campWaypoint) && isDefined(level.waypoints[self.campWaypoint]))
-        {
-            campDist = distance(self.origin, level.waypoints[self.campWaypoint].origin);
-            if (campDist < 100) // Close to camp spot
-            {
-                self setWalkDir("none"); // Stop and camp
-                return;
-            }
-        }
+                 // If we're close to camp spot, just stay there
+         if (isDefined(self.campWaypoint) && isDefined(level.waypoints[self.campWaypoint]))
+         {
+             campDist = distance(self.origin, level.waypoints[self.campWaypoint].origin);
+             if (campDist < 100) // Close to camp spot
+             {
+                 self setWalkDir("none"); // Stop and camp
+                 self.waypointStartTime = getTime(); // Reset waypoint timer to prevent timeout
+                 return;
+             }
+         }
         
         // Otherwise move to camp spot
         self move_to_waypoint(self.campWaypoint);
@@ -415,7 +417,7 @@ find_nearest_visible_hunter()
             {
                                  // Check line of sight - more strict to prevent seeing through walls
                  trace = bulletTrace(self.origin + (0,0,50), player.origin + (0,0,50), false, self);
-                 if(isDefined(trace["fraction"]) && trace["fraction"] > 0.7) // Hunter is visible (more strict)
+                 if(isDefined(trace["fraction"]) && trace["fraction"] > 0.5) // Hunter is visible (threshold aligned with zombie visibility)
                 {
                     minDist = dist;
                     nearest = player;
@@ -491,23 +493,24 @@ move_to_waypoint(waypointIndex)
     dir = targetOrigin - self.origin;
     dist = distance(self.origin, targetOrigin);
     
-    if (dist < 50) // Close to waypoint, pick new one
-    {
-        if (self.pers["team"] == "allies")
-        {
-            // Hunters should stay at their camp spot, don't pick new one
-            self setWalkDir("none"); // Stop moving and camp
-            return;
-        }
-        else
-        {
-            self.currentWaypoint = randomInt(level.waypoints.size);
-            if (!isDefined(self.currentWaypoint))
-                self.currentWaypoint = 0;
-        }
-        self.waypointStartTime = getTime(); // Reset timer when picking new waypoint
-        return;
-    }
+         if (dist < 50) // Close to waypoint, pick new one
+     {
+         if (self.pers["team"] == "allies")
+         {
+             // Hunters should stay at their camp spot, don't pick new one
+             self setWalkDir("none"); // Stop moving and camp
+             self.waypointStartTime = getTime(); // Reset timer to prevent timeout
+             return;
+         }
+         else
+         {
+             self.currentWaypoint = randomInt(level.waypoints.size);
+             if (!isDefined(self.currentWaypoint))
+                 self.currentWaypoint = 0;
+         }
+         self.waypointStartTime = getTime(); // Reset timer when picking new waypoint
+         return;
+     }
     
          // Check if we've been trying to reach this waypoint for too long (3 seconds - reduced)
      if (getTime() - self.waypointStartTime > 3000)
@@ -541,19 +544,47 @@ move_to_waypoint(waypointIndex)
          return;
      }
     
-         // Calculate direction and move
-     if (isDefined(dir))
-     {
-         targetDirection = vectorToAngles(vectorNormalize(dir));
-         self setPlayerAngles((0, targetDirection[1], 0));
-         
-         // Force a small delay to ensure direction change takes effect
-         wait 0.05;
-     }
-     else
-     {
-         return;
-     }
+                   // Calculate direction and move
+      if (isDefined(dir))
+      {
+          targetDirection = vectorToAngles(vectorNormalize(dir));
+          self setPlayerAngles((0, targetDirection[1], 0));
+          
+          // Force a small delay to ensure direction change takes effect
+          wait 0.05;
+      }
+      else
+      {
+          return;
+      }
+      
+             // If we're very close to the waypoint, just move forward without path checking
+       if (dist < 100) // Very close to waypoint
+       {
+           if (self.pers["team"] == "allies" && isDefined(self.inCombat) && self.inCombat)
+           {
+               return; // Don't move to waypoint if in tactical combat
+           }
+           else
+           {
+               self setWalkDir("forward");
+               return;
+           }
+       }
+       
+       // For hunters at camp spots, be extremely lenient with path checking
+       if (self.pers["team"] == "allies" && dist < 150) // Hunter close to camp spot
+       {
+           if (self.pers["team"] == "allies" && isDefined(self.inCombat) && self.inCombat)
+           {
+               return; // Don't move to waypoint if in tactical combat
+           }
+           else
+           {
+               self setWalkDir("forward");
+               return;
+           }
+       }
     
                    // Check if path is clear - much more lenient checking, especially for hunters at camp spots
       eye = self.origin + (0, 0, 60);
@@ -567,21 +598,21 @@ move_to_waypoint(waypointIndex)
           return;
       }
       
-      // Much more lenient path checking, especially when close to destination
-      pathClear = false;
-      if (isDefined(trace["fraction"]))
-      {
-          if (self.pers["team"] == "allies" && dist < 100) // Hunter close to camp spot
-          {
-              // Very lenient path checking when close to camp spot - almost always allow movement
-              pathClear = trace["fraction"] >= 0.1; // Only 10% clear path needed
-          }
-          else
-          {
-              // Normal path checking for other cases
-              pathClear = trace["fraction"] >= 0.5;
-          }
-      }
+             // Much more lenient path checking, especially when close to destination
+       pathClear = false;
+       if (isDefined(trace["fraction"]))
+       {
+           if (self.pers["team"] == "allies" && dist < 150) // Hunter close to camp spot
+           {
+               // Extremely lenient path checking when close to camp spot - almost always allow movement
+               pathClear = trace["fraction"] >= 0.05; // Only 5% clear path needed
+           }
+           else
+           {
+               // Normal path checking for other cases
+               pathClear = trace["fraction"] >= 0.5;
+           }
+       }
       
       if (pathClear)
       {
@@ -636,7 +667,7 @@ move_to_waypoint(waypointIndex)
 // Move towards target using waypoints (zombies)
 move_to_target_using_waypoints(target)
 {
-    if (!isDefined(target) || !isDefined(level.waypoints))
+    if (!isDefined(target) || !isDefined(level.waypoints) || !isDefined(target.origin))
     {
         return;
     }
@@ -665,6 +696,12 @@ move_to_target_using_waypoints(target)
 find_best_waypoint_towards_target(target)
 {
     if (!isDefined(level.waypoints) || level.waypoints.size == 0)
+    {
+        return undefined;
+    }
+    
+    // Guard against undefined target or missing origin
+    if (!isDefined(target) || !isDefined(target.origin))
     {
         return undefined;
     }
@@ -815,59 +852,95 @@ patrol_random_waypoints()
     self move_to_waypoint(self.currentWaypoint);
 }
 
-// Find alternative path when blocked
-find_alternative_path()
-{
-    // Try strafing left or right
-    right = anglesToRight(self getPlayerAngles());
-    eye = self.origin + (0, 0, 60);
-    
-    if (!isDefined(right))
-    {
-        return;
-    }
-    
-    traceLeft = bulletTrace(eye, eye + (right[0] * -40, right[1] * -40, right[2] * -40), false, self);
-    traceRight = bulletTrace(eye, eye + (right[0] * 40, right[1] * 40, right[2] * 40), false, self);
-    
-    if (!isDefined(traceLeft) || !isDefined(traceRight))
-    {
-        return;
-    }
-    
-    if (isDefined(traceLeft["fraction"]) && isDefined(traceRight["fraction"]))
-    {
-        if (traceLeft["fraction"] > traceRight["fraction"] && traceLeft["fraction"] > 0.5)
-        {
-            self setWalkDir("left");
-        }
-        else if (traceRight["fraction"] > 0.5)
-        {
-            self setWalkDir("right");
-        }
-        else
-        {
-            // Both sides blocked, pick new waypoint
-            if (self.pers["team"] == "allies")
-                self.campWaypoint = self find_random_camp_waypoint();
-            else
-            {
-                self.currentWaypoint = randomInt(level.waypoints.size);
-                if (!isDefined(self.currentWaypoint))
-                    self.currentWaypoint = 0;
-            }
-        }
-    }
-    else
-    {
-        // Both sides blocked, pick new waypoint
-        if (self.pers["team"] == "allies")
-            self.campWaypoint = self find_random_camp_waypoint();
-        else
-        {
-            self.currentWaypoint = randomInt(level.waypoints.size);
-            if (!isDefined(self.currentWaypoint))
-                self.currentWaypoint = 0;
-        }
-    }
-}
+ // Find the nearest waypoint to a target (for zombies to find nearest waypoint to hunter)
+ find_nearest_waypoint_to_target(target)
+ {
+     if (!isDefined(level.waypoints) || level.waypoints.size == 0 || !isDefined(target) || !isDefined(target.origin))
+     {
+         return undefined;
+     }
+         
+     nearestWaypoint = undefined;
+     minDist = 999999;
+     
+     for(i = 0; i < level.waypoints.size; i++)
+     {
+         if(!isDefined(level.waypoints[i]) || !isDefined(level.waypoints[i].origin))
+             continue;
+             
+         // Calculate distance from waypoint to target
+         waypointToTargetDist = distance(level.waypoints[i].origin, target.origin);
+         
+         // Check if this waypoint is closer to the target
+         if(waypointToTargetDist < minDist)
+         {
+             // Check if we can reach this waypoint from our current position
+             eye = self.origin + (0, 0, 60);
+             trace = bulletTrace(eye, level.waypoints[i].origin + (0,0,60), false, self);
+             if (isDefined(trace) && isDefined(trace["fraction"]) && trace["fraction"] > 0.3)
+             {
+                 minDist = waypointToTargetDist;
+                 nearestWaypoint = i;
+             }
+         }
+     }
+     
+     return nearestWaypoint;
+ }
+
+ // Find alternative path when blocked
+ find_alternative_path()
+ {
+     // Try strafing left or right
+     right = anglesToRight(self getPlayerAngles());
+     eye = self.origin + (0, 0, 60);
+     
+     if (!isDefined(right))
+     {
+         return;
+     }
+     
+     traceLeft = bulletTrace(eye, eye + (right[0] * -40, right[1] * -40, right[2] * -40), false, self);
+     traceRight = bulletTrace(eye, eye + (right[0] * 40, right[1] * 40, right[2] * 40), false, self);
+     
+     if (!isDefined(traceLeft) || !isDefined(traceRight))
+     {
+         return;
+     }
+     
+     if (isDefined(traceLeft["fraction"]) && isDefined(traceRight["fraction"]))
+     {
+         if (traceLeft["fraction"] > traceRight["fraction"] && traceLeft["fraction"] > 0.5)
+         {
+             self setWalkDir("left");
+         }
+         else if (traceRight["fraction"] > 0.5)
+         {
+             self setWalkDir("right");
+         }
+         else
+         {
+             // Both sides blocked, pick new waypoint
+             if (self.pers["team"] == "allies")
+                 self.campWaypoint = self find_random_camp_waypoint();
+             else
+             {
+                 self.currentWaypoint = randomInt(level.waypoints.size);
+                 if (!isDefined(self.currentWaypoint))
+                     self.currentWaypoint = 0;
+             }
+         }
+     }
+     else
+     {
+         // Both sides blocked, pick new waypoint
+         if (self.pers["team"] == "allies")
+             self.campWaypoint = self find_random_camp_waypoint();
+         else
+         {
+             self.currentWaypoint = randomInt(level.waypoints.size);
+             if (!isDefined(self.currentWaypoint))
+                 self.currentWaypoint = 0;
+         }
+     }
+       }
