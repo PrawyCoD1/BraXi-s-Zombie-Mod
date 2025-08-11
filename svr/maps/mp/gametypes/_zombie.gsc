@@ -790,6 +790,11 @@ playerKilled(eInflictor, attacker, iDamage, sMeansOfDeath, sWeapon, vDir, sHitLo
 spawnPlayer()
 {
    self cleanUp();
+   
+   // Reset head and helmet pop flags
+   self.headPopped = undefined;
+   self.helmetPopped = undefined;
+   
    if(isDefined(self.isbot))
    {
 	   self thread maps\mp\gametypes\_bots::init_bot_ai();
@@ -1197,10 +1202,6 @@ endMap( roundWinningTeam )
 		player = players[i];
 		player maps\mp\gametypes\blank::spawnSpectator();
 		player setClientCvar( "cg_objectiveText", text );
-		player allowSpectateTeam( "allies", false );
-		player allowSpectateTeam( "axis", false );
-		player allowSpectateTeam( "freelook", false );
-		player allowSpectateTeam( "none", true );
 	}
 	wait .05;
 
@@ -1232,10 +1233,6 @@ endMap( roundWinningTeam )
 		player = players[i];
 		player maps\mp\gametypes\blank::spawnSpectator();
 		player setClientCvar( "cg_objectiveText", text );
-		player allowSpectateTeam( "allies", false );
-		player allowSpectateTeam( "axis", false );
-		player allowSpectateTeam( "freelook", false );
-		player allowSpectateTeam( "none", true );
 	}	
 
 	if( level.zom["map_vote"] )
@@ -2231,11 +2228,6 @@ gameCam( playerNum, time )
 	self.spectatorclient = playerNum;
 	self.archivetime = time;
 
-	self allowSpectateTeam( "allies", true );
-	self allowSpectateTeam( "axis", true );
-	self allowSpectateTeam( "freelook", false );
-	self allowSpectateTeam( "none", false );
-
 
 //	if( playerNum != self getEntityNumber() )
 //		self thread rotateCamera( 3 );
@@ -2751,9 +2743,21 @@ doBloodScreen()
 		return;
 	self.bloodyed = true;
 
-	for( i = 0; i < self.hud_BloodScreen.size; i++ )
-		if( isDefined( self.hud_BloodScreen[i] ) )
-			self.hud_BloodScreen[i] delete();
+	// Safely delete existing blood screen elements
+	if (isDefined(self.hud_BloodScreen))
+	{
+		for (i = 0; i < self.hud_BloodScreen.size; i++)
+		{
+			if (isDefined(self.hud_BloodScreen[i]))
+			{
+				// Check if the HUD element is still valid before deleting
+				if (isDefined(self.hud_BloodScreen[i].x))
+				{
+					self.hud_BloodScreen[i] delete();
+				}
+			}
+		}
+	}
 
 
 	images = [];
@@ -2792,9 +2796,23 @@ bloodscreentimer()
 {
 	self endon("disconnect");
 	wait 3;
-	for( b = 0; b < self.hud_BloodScreen.size; b++ )
-		if( isDefined( self.hud_BloodScreen[b] ) )
-			self.hud_BloodScreen[b] destroy();
+	
+	// Safely destroy blood screen elements
+	if (isDefined(self.hud_BloodScreen))
+	{
+		for (b = 0; b < self.hud_BloodScreen.size; b++)
+		{
+			if (isDefined(self.hud_BloodScreen[b]))
+			{
+				// Check if the HUD element is still valid before destroying
+				if (isDefined(self.hud_BloodScreen[b].x))
+				{
+					self.hud_BloodScreen[b] destroy();
+				}
+			}
+		}
+	}
+	
 	self.bloodyed = false;
 }
 
@@ -4196,7 +4214,12 @@ popHead( damageDir, damage )
 	if(!isdefined(self.headmodel))
 		return;
 
-	self detach( self.headmodel , "");
+	// Only try to detach if we haven't already popped the head
+	if(!isdefined(self.headPopped))
+	{
+		self.headPopped = true;
+		self detach( self.headmodel , "");
+	}
 
 	if(isPlayer(self))
 	{
@@ -4242,7 +4265,12 @@ popHelmet( damageDir, damage)
 	if(!isdefined(self.hatModel))
 		return;
 
-	self detach( self.hatModel , "" );
+	// Only try to detach if we haven't already popped the helmet
+	if(!isdefined(self.helmetPopped))
+	{
+		self.helmetPopped = true;
+		self detach( self.hatModel , "" );
+	}
 
 	if(isPlayer(self))
 	{
