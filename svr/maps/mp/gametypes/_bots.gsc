@@ -20,7 +20,6 @@ init_bot_ai()
     self.meleeTime = 500;
     self.meleeSpeed = 1.0;
     self.isDoingMelee = false;
-    self.waiting = false;
     self.zombiewait = false;
     
     // Reset waypoint system
@@ -38,29 +37,39 @@ init_bot_ai()
     }
     
     self thread bot_think_loop();
+    self thread bot_cleanup_watcher();
 }
 
 // Main bot thinking loop
 bot_think_loop()
 {
-    self endon("disconnect");
-    self endon("death");
-    
     while (isDefined(self) && isDefined(self.isbot) && self.sessionstate == "playing")
     {
         if (self.pers["team"] == "axis") // Zombie bot behavior
         {
+            self meleeWeapon(false);
             self zombie_bot_logic();
         }
         else if (self.pers["team"] == "allies") // Hunter bot behavior
         {
             self hunter_bot_logic();
         }
+        self setWalkDir("none");
         
-        wait 0.1; // Prevent excessive CPU usage
+        wait 0.05; // Prevent excessive CPU usage
     }
+}
+
+// Separate thread to handle bot cleanup on disconnect/death
+bot_cleanup_watcher()
+{
+    self endon("disconnect");
+    self endon("death");
     
-    // Cleanup when bot dies or disconnects
+    // Wait for disconnect or death
+    self waittill("disconnect");
+    
+    // Cleanup when bot disconnects or dies
     self bot_cleanup();
 }
 
@@ -72,7 +81,6 @@ bot_cleanup()
     
     // Reset all movement and targeting variables
     self.zombiewait = false;
-    self.waiting = false;
     self.isDoingMelee = false;
     self.stuckRecoveryMode = false;
     
@@ -95,7 +103,6 @@ zombie_bot_logic()
         self.meleeTime = 500;
         self.meleeSpeed = 1.0;
         self.isDoingMelee = false;
-        self.waiting = false;
         self.zombiewait = false;
         self.myWaypoint = -2;
         self.cur_speed = 200;
@@ -171,33 +178,18 @@ zombie_bot_logic()
         self.meleeSpeed = 1.0; // Melee attack speed multiplier
     if (!isDefined(self.isDoingMelee))
         self.isDoingMelee = false;
-    if (!isDefined(self.waiting))
-        self.waiting = false;
     if (!isDefined(self.zombiewait))
         self.zombiewait = false;
     
     // Find best target using improved logic - zombies will target hunters even without line of sight
     bestTarget = self zomGetBestTarget();
-    
-    // Debug: Check if zombie is targeting correctly
-    if (isDefined(bestTarget))
-    {
-        if (bestTarget.pers["team"] == "axis")
-        {
-            iPrintlnBold("ERROR: Zombie " + self.name + " is targeting another zombie: " + bestTarget.name);
-        }
-    }
+
     
     // Push out of other players to prevent clustering
     self thread pushOutOfPlayers();
     
-    if (self.waiting)
-        return;
-    
     if (isDefined(bestTarget) && isDefined(self) && isAlive(self) && isAlive(bestTarget))
     {
-        wait 0.05;
-        
         // Validate target is still valid
         if (!isDefined(bestTarget.origin))
         {
@@ -205,11 +197,11 @@ zombie_bot_logic()
             return;
         }
         
-        if (distance(bestTarget.origin, self.origin) < self.meleeRange && !self.isDoingMelee)
+        if (distancesquared(bestTarget.origin, self.origin) < self.meleeRange && !self.isDoingMelee)
         {
             // Close enough for melee attack
+            self.isDoingMelee = true;
             self thread zomMoveLockon(bestTarget, self.meleeTime, self.meleeSpeed);
-            self zombieattack();
         }
         else
         {
@@ -244,8 +236,8 @@ zombie_bot_logic()
                     if (distance(bestTarget.origin, self.origin) < self.meleeRange && !self.isDoingMelee)
                     {
                         self.zombiewait = false; // Exit movement loop to attack
+                        self.isDoingMelee = true;
                         self thread zomMoveLockon(bestTarget, self.meleeTime, self.meleeSpeed);
-                        self zombieattack();
                     }
                 }
                 
@@ -939,9 +931,7 @@ ListExists(list, n, listSize)
 
 // Lock onto target for melee attack
 zomMoveLockon(target, meleeTime, meleeSpeed)
-{
-    self.isDoingMelee = true;
-    
+{ 
     // Face the target
     dir = target.origin - self.origin;
     if (isDefined(dir))
@@ -949,42 +939,16 @@ zomMoveLockon(target, meleeTime, meleeSpeed)
         targetAngles = vectorToAngles(dir);
         self setPlayerAngles(targetAngles);
     }
-    
-    // Check if we're close enough for melee attack
-    currentDist = distance(self.origin, target.origin);
-    if (currentDist > 25) // If still too far, move closer first
-    {
-        // Move closer to target before attacking
-        self setWalkDir("forward");
-        wait 0.3; // Move for a short time to close the gap
-        self setWalkDir("none");
-    }
-    
-    // Perform melee attack
-    if (!isDefined(self.lastMeleeTime))
-        self.lastMeleeTime = 0;
         
     currentTime = getTime();
     if (currentTime - self.lastMeleeTime > meleeTime)
     {
         self meleeWeapon(true);
-        wait 0.1;
-        self meleeWeapon(false);
         self.lastMeleeTime = currentTime;
     }
     
     // Reset melee state and allow movement to continue
     self.isDoingMelee = false;
-    
-    // Small delay to prevent rapid attack spam
-    wait 0.2;
-}
-
-// Zombie attack function
-zombieattack()
-{
-    // This function can be expanded with additional zombie attack logic
-    // For now, it's handled in zomMoveLockon
 }
 
 // Search for targets when none are visible
@@ -1043,8 +1007,6 @@ pushOutOfPlayers()
                     pushAngles = vectorToAngles(pushDir);
                     self setPlayerAngles(pushAngles);
                     self setWalkDir("forward");
-                    wait 0.1;
-                    self setWalkDir("none");
                 }
             }
         }
@@ -1066,7 +1028,6 @@ hunter_bot_logic()
         self.shootTime = 300; // Time between shots
         self.isDoingMelee = false;
         self.isShooting = false;
-        self.waiting = false;
         self.hunterwait = false;
         self.myWaypoint = -2;
         self.cur_speed = 250; // Hunters move faster than zombies
