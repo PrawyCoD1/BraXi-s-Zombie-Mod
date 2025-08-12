@@ -456,6 +456,7 @@ playerConnect()
 	self.isParachuting = false;
 	self.isLast = false;
 	self.running = false;
+	self.isbot = false;
 
 	player = self;
 	player setClientCvar( "ui_warmuptime", level.zom["warmup_time"] );

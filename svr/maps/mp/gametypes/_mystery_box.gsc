@@ -42,7 +42,6 @@ main()
 		level.mystery_box.angles = angles.angles + spawnpoint[num].angles;
 		level.mystery_box setModel( "xmodel/crate_misc1_stalingrad" );
 		level.mystery_box thread mystery_box();
-//		level.mystery_box thread playLightFx();
 
 		objective_add( 2, "current", level.mystery_box.origin, "gfx/hud/hud@objectivegoal.tga" );
 		objective_team( 2 ,"allies" );
@@ -50,6 +49,7 @@ main()
 		players = getentarray( "player", "classname" );
 		for( i = 0; i < players.size; i++ )
 		{
+			// Combine conditions to reduce variable usage
 			if(isDefined( players[i].pers["team"]) && players[i].pers["team"] == "allies" )
 				players[i] iPrintlnBold( "^3Mystery Box is now ready!" );
 
@@ -91,54 +91,51 @@ mystery_box()
 		for( i = 0; i < players.size; i++ )
 		{
 			player = players[i];
-			if( player.sessionstate == "playing" && player.pers["team"] == "allies" )
+			// Combine conditions to reduce variable usage
+			if( player.sessionstate == "playing" && isDefined(player.pers["team"]) && player.pers["team"] == "allies" && distance(player.origin, self.origin) < 72 && player useButtonPressed() && !player.pickedMysteryWeapon )
 			{
-				if( distance(player.origin, self.origin) < 72 && player useButtonPressed() && !player.pickedMysteryWeapon )
+				if( !isDefined(self.weapon) )
 				{
-					if( !isDefined(self.weapon) )
+					self.weapon = spawn( "script_model", self.origin + (0,0,20) );
+					self.weapon.angles = (0,(self.angles[1] + 90),0);
+					self playSound( "mystery_box_open" );
+
+					self.weapon moveZ( 22, 1.1 );
+					self.weapon createRandomItem();
+					for( i = 0; i < 3; i++ )
 					{
-						self.weapon = spawn( "script_model", self.origin + (0,0,20) );
-						self.weapon.angles = (0,(self.angles[1] + 90),0);
-						//self.weapon linkTo(self);
-						self playSound( "mystery_box_open" );
-	
-						self.weapon moveZ( 22, 1.1 );
+						wait 0.33;
 						self.weapon createRandomItem();
-						for( i = 0; i < 3; i++ )
-						{
-							wait 0.33;
-							self.weapon createRandomItem();
-						}
-						wait 0.1;
-						self.weapon.ready = true;
-						self.weapon thread deleteOverTime(2.5);
 					}
-					else if( isDefined( self.weapon ) && isDefined( self.weapon.ready ) && !player.pickedMysteryWeapon )
-					{
-						player.pickedMysteryWeapon = true;
-						self playSound( "mystery_box_take" );
+					wait 0.1;
+					self.weapon.ready = true;
+					self.weapon thread deleteOverTime(2.5);
+				}
+				else if( isDefined( self.weapon ) && isDefined( self.weapon.ready ) )
+				{
+					player.pickedMysteryWeapon = true;
+					self playSound( "mystery_box_take" );
 
-						slot = self.weapon.slot;
-						if( slot == "primary" && player getWeaponSlotWeapon("primary") != "none" )
-							slot = "primaryb";
-						
-						ammo = maps\mp\gametypes\_zombie::getClipSize(self.weapon.weaponName);
-						if( self.weapon.weaponName == "tnt_mp" )
-							ammo = 1;
+					slot = self.weapon.slot;
+					if( slot == "primary" && player getWeaponSlotWeapon("primary") != "none" )
+						slot = "primaryb";
+					
+					ammo = maps\mp\gametypes\_zombie::getClipSize(self.weapon.weaponName);
+					if( self.weapon.weaponName == "tnt_mp" )
+						ammo = 1;
 
-						player setWeaponSlotWeapon( slot, self.weapon.weaponName );
-						player setWeaponSlotClipAmmo( slot, ammo );
-						player setWeaponSlotAmmo( slot, (ammo * 2) );
-						player switchToWeapon( self.weapon.weaponName );
+					player setWeaponSlotWeapon( slot, self.weapon.weaponName );
+					player setWeaponSlotClipAmmo( slot, ammo );
+					player setWeaponSlotAmmo( slot, (ammo * 2) );
+					player switchToWeapon( self.weapon.weaponName );
 
-						// 👇 Fix: Update stored weapon data after giving new weapon
-						player maps\mp\gametypes\_util::updateDisabledSlotAfterPickup(slot);
+					// 👇 Fix: Update stored weapon data after giving new weapon
+					player maps\mp\gametypes\_util::updateDisabledSlotAfterPickup(slot);
 
-						self.weapon delete();
+					self.weapon delete();
 
-						player playLocalSound( "weap_pickup" );
-						wait 1.6;
-					}
+					player playLocalSound( "weap_pickup" );
+					wait 1.6;
 				}
 			}
 		}
@@ -148,8 +145,7 @@ mystery_box()
 
 createRandomItem()
 {
-	num = randomInt( 20 );
-	switch( num )
+	switch( randomInt( 20 ) )
 	{
 	case 0:
 		self setModel( "xmodel/weapon_MK2FragGrenade" );
@@ -270,8 +266,6 @@ createRandomItem()
 		self.weaponName = "tnt_mp";
 		self.slot = "grenade";
 		break;
-
-		
 	}
 }
 
