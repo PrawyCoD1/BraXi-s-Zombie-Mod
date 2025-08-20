@@ -27,7 +27,13 @@ init_bot_ai()
 // Main bot thinking loop
 bot_think_loop()
 {
-    while (isDefined(self) && isDefined(self.isbot) && self.sessionstate == "playing")
+    // Only run for bots, not human players
+    if (!isDefined(self.isbot) || !self.isbot)
+    {
+        return;
+    }
+    
+    while (isDefined(self) && self.isbot && self.sessionstate == "playing")
     {
         if (self.pers["team"] == "axis") // Zombie bot behavior
         {
@@ -48,136 +54,562 @@ bot_think_loop()
 
 zombie_bot_logic()
 {
-         // Check if zombie is stuck
-     currentDist = distance(self.origin, self.lastPosition);
-     if (currentDist < 10) // Barely moved
-     {
-         if (getTime() - self.stuckTime > 1500) // Stuck for 1.5 seconds (reduced further)
-         {
-             // Force stop current movement and reset everything
-             self setWalkDir("none");
-             wait 0.2; // Longer delay to ensure complete stop
-             
-             // Pick a completely new random waypoint
-             self.currentWaypoint = randomInt(level.waypoints.size);
-             self.stuckTime = getTime();
-             self.waypointStartTime = getTime(); // Reset waypoint timer too
-             
-             // Force movement in completely random direction (not towards waypoint)
-             randomAngle = randomInt(360);
-             self setPlayerAngles((0, randomAngle, 0));
-             wait 0.1; // Longer delay to ensure direction change
-             
-             // Force forward movement in random direction
-             self setWalkDir("forward");
-             
-             iPrintlnBold("Bot " + self.name + " was stuck, forcing random direction " + randomAngle);
-             
-             // Don't continue with normal logic for a moment to let the forced movement work
-             return;
-         }
-     }
-     else
-     {
-         self.lastPosition = self.origin;
-         self.stuckTime = getTime();
-     }
-    
-    // Find nearest visible hunter
-    nearestHunter = self find_nearest_visible_hunter();
-    
-    // Reset melee timer if no hunters found
-    if (!isDefined(nearestHunter))
+    // Check if zombie is stuck
+    currentDist = distance(self.origin, self.lastPosition);
+    if (currentDist < 10) // Barely moved
     {
-        if (isDefined(self.lastMeleeTime))
+        if (getTime() - self.stuckTime > 1500) // Stuck for 1.5 seconds
         {
-            self.lastMeleeTime = 0;
+            // Force stop current movement and reset everything
+            self setWalkDir("none");
+            wait 0.2;
+            
+            // Pick a new nearest waypoint to get unstuck
+            self.currentWaypoint = self GetNearestStaticWaypoint(self.origin);
+            self.stuckTime = getTime();
+            self.waypointStartTime = getTime();
+            
+            // Move towards the new waypoint
+            if(isDefined(self.currentWaypoint) && self.currentWaypoint != -1 && isDefined(level.waypoints[self.currentWaypoint]))
+            {
+                waypointPos = level.waypoints[self.currentWaypoint].origin;
+                targetVector = waypointPos - self.origin;
+                if(isDefined(targetVector))
+                {
+                    targetAngles = vectorToAngles(targetVector);
+                    self setPlayerAngles(targetAngles);
+                }
+                self setWalkDir("forward");
+            }
+            
+            iPrintlnBold("Bot " + self.name + " was stuck, moving to new waypoint " + self.currentWaypoint);
+            
+            return;
         }
     }
+    else
+    {
+        self.lastPosition = self.origin;
+        self.stuckTime = getTime();
+    }
+    
+    // Find nearest hunter (any hunter, not just visible ones)
+    nearestHunter = self find_nearest_hunter();
     
     if (isDefined(nearestHunter))
     {
         dist = distance(self.origin, nearestHunter.origin);
         
-                 if (dist < 60) // Close enough for melee attack (reduced from 100)
-         {
-             // Check if we can actually reach the hunter for melee (no wall between us)
-             meleeTrace = bulletTrace(self.origin + (0,0,50), nearestHunter.origin + (0,0,50), false, self);
-             if (isDefined(meleeTrace["fraction"]) && meleeTrace["fraction"] > 0.8) // Almost clear path for melee
-             {
-                 // Face the hunter
-                 targetVector = nearestHunter.origin - self.origin;
-                 if (isDefined(targetVector))
-                 {
-                     targetAngles = vectorToAngles(targetVector);
-                     self setPlayerAngles(targetAngles);
-                 }
-                 
-                 // Stop moving and melee attack
-                 self setWalkDir("none");
-                 
-                 // Melee attack
-                 if (!isDefined(self.lastMeleeTime))
-                     self.lastMeleeTime = 0;
-                     
-                 currentTime = getTime();
-                 if (currentTime - self.lastMeleeTime > 500) // Melee every 500ms
-                 {
-                     self meleeWeapon(true);
-                     wait 0.1;
-                     self meleeWeapon(false);
-                     self.lastMeleeTime = currentTime;
-                 }
-             }
-             else
-             {
-                 // Can't melee through wall, move towards hunter using waypoints
-                 bestWaypoint = self find_best_waypoint_towards_target(nearestHunter);
-                 if (isDefined(bestWaypoint))
-                 {
-                     self move_to_waypoint(bestWaypoint);
-                 }
-                 else
-                 {
-                     // If no good waypoint found, try to move around obstacles
-                     self find_alternative_path();
-                 }
-             }
-         }
-            else // Too far, move towards hunter using waypoints
-    {
-                 // Find the nearest waypoint to the hunter and go there
-         hunterNearestWaypoint = self find_nearest_waypoint_to_target(nearestHunter);
-         if (isDefined(hunterNearestWaypoint))
-         {
-             self move_to_waypoint(hunterNearestWaypoint);
-         }
-         else
-         {
-             // If no good waypoint found, try to move around obstacles
-             self find_alternative_path();
-         }
-    }
-    }
-    else // No hunters visible, patrol randomly
-    {
-        // Always ensure zombie is moving when no hunters found
-        if (!isDefined(self.currentWaypoint))
+        if (dist < 60) // Close enough for melee attack
         {
-            self.currentWaypoint = randomInt(level.waypoints.size);
-            if (!isDefined(self.currentWaypoint))
-                self.currentWaypoint = 0;
+            // Face the hunter and melee attack
+            targetVector = nearestHunter.origin - self.origin;
+            if (isDefined(targetVector))
+            {
+                targetAngles = vectorToAngles(targetVector);
+                self setPlayerAngles(targetAngles);
+            }
+            
+            // Stop moving and melee attack
+            self setWalkDir("none");
+            
+            // Melee attack
+            if (!isDefined(self.lastMeleeTime) || getTime() - self.lastMeleeTime > 1000) // 1 second cooldown
+            {
+                self.lastMeleeTime = getTime();
+                self meleeWeapon(true);
+                wait 0.1;
+                self meleeWeapon(false);
+            }
+            return;
         }
         
-        self patrol_random_waypoints();
-        
-        // Force movement if not moving
-        if (isDefined(self.currentWaypoint))
-        {
-            self move_to_waypoint(self.currentWaypoint);
-        }
+        // Move directly towards hunter using A* pathfinding
+        self zombie_move_to_hunter(nearestHunter);
+    }
+    else
+    {
+        // No hunters found, just move forward in current direction
+        self setWalkDir("forward");
     }
 }
+
+getway(startWp, goalWp)
+{
+	self endon("player_killed");
+
+	pQOpen = [];
+	pQSize = 0;
+	closedList = [];
+	listSize = 0;
+	s = spawnstruct();
+	s.g = 0; //start node
+	s.h = distance(level.waypoints[startWp].origin, level.waypoints[goalWp].origin);
+	s.f = s.g + s.h;
+	s.wpIdx = startWp;
+	s.parent = spawnstruct();
+	s.parent.wpIdx = -1;
+
+	pQOpen[pQSize] = spawnstruct();
+	pQOpen[pQSize] = s; //push s on Open
+	pQSize++; 
+
+	while(!PQIsEmpty(pQOpen, pQSize))
+	{
+		n = pQOpen[0];
+		highestPriority = 9999999999;
+		bestNode = -1;
+		for(i = 0; i < pQSize; i++)
+		{
+			if(pQOpen[i].f < highestPriority)
+			{
+				bestNode = i;
+				highestPriority = pQOpen[i].f;
+			}
+		} 
+    
+		if(bestNode != -1)
+		{
+			n = pQOpen[bestNode];
+			//remove node from queue    
+			for(i = bestNode; i < pQSize-1; i++)
+			{
+				pQOpen[i] = pQOpen[i+1];
+			}
+			pQSize--;
+		}
+		else
+		{
+			return;
+		}  
+
+		//if n is a goal node; construct path, return success
+		if(n.wpIdx == goalWp)
+		{
+			x = n;
+			for(z = 0; z < 1000; z++)
+			{
+				if(!isDefined(x) || !isDefined(x.parent))
+					break;
+					
+				parent = x.parent;
+				if(isDefined(parent) && isDefined(parent.parent) && parent.parent.wpIdx == -1)
+				{	
+					return x.wpIdx;
+				}
+				x = parent;
+			}
+			return;      
+		}
+
+		//for each successor nc of n
+		for(i = 0; i < level.waypoints[n.wpIdx].childCount; i++)
+		{
+			wait 0;
+			newg = n.g + distance(level.waypoints[n.wpIdx].origin, level.waypoints[level.waypoints[n.wpIdx].children[i]].origin);
+			//if nc is in Open or Closed, and nc.g <= newg then skip
+			if(PQExists(pQOpen, level.waypoints[n.wpIdx].children[i], pQSize))
+			{   
+				nc = spawnstruct();
+				for(p = 0; p < pQSize; p++)
+				{
+					if(pQOpen[p].wpIdx == level.waypoints[n.wpIdx].children[i])
+					{
+						nc = pQOpen[p];
+						break;
+					}
+				}   
+				if(nc.g <= newg)
+				{
+					continue;
+				}
+			}
+			else
+			{
+				if(ListExists(closedList, level.waypoints[n.wpIdx].children[i], listSize))
+				{
+					nc = spawnstruct();
+					for(p = 0; p < listSize; p++)
+					{
+						if(closedList[p].wpIdx == level.waypoints[n.wpIdx].children[i])
+						{
+							nc = closedList[p];
+							break;
+						}
+					}
+					if(nc.g <= newg)
+					{
+						continue;
+					}
+				}
+			}
+
+			nc = spawnstruct();
+			nc.parent = spawnstruct();
+			nc.parent = n;
+			nc.g = newg;
+			nc.h = distance(level.waypoints[level.waypoints[n.wpIdx].children[i]].origin, level.waypoints[goalWp].origin);
+			nc.f = nc.g + nc.h;
+			nc.wpIdx = level.waypoints[n.wpIdx].children[i];
+
+			//if nc is in Closed,
+			if(ListExists(closedList, nc.wpIdx, listSize))
+			{
+				deleted = false;
+				for(p = 0; p < listSize; p++)
+				{
+					if(closedList[p].wpIdx == nc.wpIdx)
+					{
+						for(x = p; x < listSize-1; x++)
+						{
+							closedList[x] = closedList[x+1];
+						}
+						deleted = true;
+						break;
+					}
+					if(deleted)
+					{
+						break;
+					}
+				}    
+				listSize--;
+			}
+	    
+			//if nc is not yet in Open, 
+			if(!PQExists(pQOpen, nc.wpIdx, pQSize))
+			{
+				pQOpen[pQSize] = spawnstruct();
+				pQOpen[pQSize] = nc;  
+				pQSize++;
+			}
+		}
+
+		//Done with children, push n onto Closed
+		if(!ListExists(closedList, n.wpIdx, listSize))
+		{
+			closedList[listSize] = spawnstruct();
+			closedList[listSize] = n;  
+			listSize++;
+		}
+	}
+
+}
+PQIsEmpty(Q, QSize)
+{
+	if(QSize <= 0)
+	{
+		return true;
+	}
+	return false;
+}
+PQExists(Q, n, QSize)
+{
+	for(i = 0; i < QSize; i++)
+	{
+		if(Q[i].wpIdx == n)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+ListExists(list, n, listSize)
+{
+	for(i = 0; i < listSize; i++)
+	{
+		if(list[i].wpIdx == n)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// =========================
+// A* Pathfinding System
+// =========================
+
+// Simple zombie movement to hunter using A* pathfinding
+zombie_move_to_hunter(hunter)
+{
+    if(!isDefined(hunter) || !isAlive(hunter))
+        return;
+    
+    // Get current waypoint and target waypoint
+    currentWp = self GetNearestStaticWaypoint(self.origin);
+    targetWp = self GetNearestStaticWaypoint(hunter.origin);
+    
+    if(currentWp == -1 || targetWp == -1)
+    {
+        // Fallback to direct movement
+        self move_directly_to_hunter(hunter);
+        return;
+    }
+    
+    // Use A* pathfinding to get next waypoint
+    nextWp = self getway(currentWp, targetWp);
+    
+    if(isDefined(nextWp) && nextWp != -1 && isDefined(level.waypoints[nextWp]))
+    {
+        // Move to the next waypoint in the A* path
+        waypointPos = level.waypoints[nextWp].origin;
+        self move_to_waypoint_position(waypointPos);
+    }
+    else
+    {
+        // No path found, move directly towards hunter
+        self move_directly_to_hunter(hunter);
+    }
+}
+
+// Get nearest waypoint to current position
+get_nearest_waypoint()
+{
+    if(!isDefined(level.waypoints) || level.waypoints.size == 0)
+        return -1;
+    
+    nearestWp = -1;
+    nearestDist = 999999;
+    
+    for(i = 0; i < level.waypoints.size; i++)
+    {
+        if(isDefined(level.waypoints[i]))
+        {
+            dist = distance(self.origin, level.waypoints[i].origin);
+            if(dist < nearestDist)
+            {
+                nearestDist = dist;
+                nearestWp = i;
+            }
+        }
+    }
+    
+    return nearestWp;
+}
+
+// Get nearest waypoint to target position
+get_nearest_waypoint_to_position(targetPos)
+{
+    if(!isDefined(level.waypoints) || level.waypoints.size == 0)
+        return -1;
+    
+    nearestWp = -1;
+    nearestDist = 999999;
+    
+    for(i = 0; i < level.waypoints.size; i++)
+    {
+        if(isDefined(level.waypoints[i]))
+        {
+            dist = distance(targetPos, level.waypoints[i].origin);
+            if(dist < nearestDist)
+            {
+                nearestDist = dist;
+                nearestWp = i;
+            }
+        }
+    }
+    
+    return nearestWp;
+}
+
+// A* pathfinding algorithm
+a_star_pathfind(startWp, goalWp)
+{
+    if(startWp == goalWp)
+        return [];
+    
+    openList = [];
+    closedList = [];
+    
+    // Add start node to open list
+    startNode = spawnstruct();
+    startNode.waypoint = startWp;
+    startNode.g = 0;
+    startNode.h = distance(level.waypoints[startWp].origin, level.waypoints[goalWp].origin);
+    startNode.f = startNode.g + startNode.h;
+    startNode.parent = undefined;
+    
+    openList[openList.size] = startNode;
+    
+    while(openList.size > 0)
+    {
+        // Find node with lowest f value
+        currentNode = openList[0];
+        currentIndex = 0;
+        
+        for(i = 1; i < openList.size; i++)
+        {
+            if(openList[i].f < currentNode.f)
+            {
+                currentNode = openList[i];
+                currentIndex = i;
+            }
+        }
+        
+        // Remove current node from open list by creating new array
+        newOpenList = [];
+        for(i = 0; i < openList.size; i++)
+        {
+            if(i != currentIndex)
+            {
+                newOpenList[newOpenList.size] = openList[i];
+            }
+        }
+        openList = newOpenList;
+        
+        // Add to closed list
+        closedList[closedList.size] = currentNode;
+        
+        // Check if we reached the goal
+        if(currentNode.waypoint == goalWp)
+        {
+            // Reconstruct path
+            path = [];
+            current = currentNode;
+            
+            while(isDefined(current))
+            {
+                path[path.size] = current.waypoint;
+                current = current.parent;
+            }
+            
+            // Reverse path to get correct order
+            reversedPath = [];
+            for(i = path.size - 1; i >= 0; i--)
+            {
+                reversedPath[reversedPath.size] = path[i];
+            }
+            
+            return reversedPath;
+        }
+        
+        // Check neighbors
+        if(isDefined(level.waypoints[currentNode.waypoint].connections))
+        {
+            for(i = 0; i < level.waypoints[currentNode.waypoint].connections.size; i++)
+            {
+                neighborWp = level.waypoints[currentNode.waypoint].connections[i];
+                
+                // Skip if in closed list
+                inClosed = false;
+                for(j = 0; j < closedList.size; j++)
+                {
+                    if(closedList[j].waypoint == neighborWp)
+                    {
+                        inClosed = true;
+                        break;
+                    }
+                }
+                
+                if(inClosed)
+                    continue;
+                
+                // Calculate g value
+                g = currentNode.g + distance(level.waypoints[currentNode.waypoint].origin, level.waypoints[neighborWp].origin);
+                
+                // Check if neighbor is in open list
+                inOpen = false;
+                openIndex = -1;
+                
+                for(j = 0; j < openList.size; j++)
+                {
+                    if(openList[j].waypoint == neighborWp)
+                    {
+                        inOpen = true;
+                        openIndex = j;
+                        break;
+                    }
+                }
+                
+                if(!inOpen)
+                {
+                    // Add to open list
+                    neighborNode = spawnstruct();
+                    neighborNode.waypoint = neighborWp;
+                    neighborNode.g = g;
+                    neighborNode.h = distance(level.waypoints[neighborWp].origin, level.waypoints[goalWp].origin);
+                    neighborNode.f = neighborNode.g + neighborNode.h;
+                    neighborNode.parent = currentNode;
+                    
+                    openList[openList.size] = neighborNode;
+                }
+                else if(g < openList[openIndex].g)
+                {
+                    // Update existing node
+                    openList[openIndex].g = g;
+                    openList[openIndex].f = g + openList[openIndex].h;
+                    openList[openIndex].parent = currentNode;
+                }
+            }
+        }
+    }
+    
+    // No path found
+    return undefined;
+}
+
+// Move directly to hunter (fallback)
+move_directly_to_hunter(hunter)
+{
+    if(!isDefined(hunter) || !isAlive(hunter))
+        return;
+    
+    // Face the hunter
+    targetVector = hunter.origin - self.origin;
+    if(isDefined(targetVector))
+    {
+        targetAngles = vectorToAngles(targetVector);
+        self setPlayerAngles(targetAngles);
+    }
+    
+    // Move forward
+    self setWalkDir("forward");
+}
+
+// Move to waypoint position
+move_to_waypoint_position(waypointPos)
+{
+    if(!isDefined(waypointPos))
+        return;
+    
+    // Check if we're already close to the waypoint
+    dist = distance(self.origin, waypointPos);
+    if(dist < 30) // Very close to waypoint, recalculate path
+    {
+        // Clear current path to force recalculation
+        self.currentPathTarget = undefined;
+        return;
+    }
+    
+    // Face the waypoint
+    targetVector = waypointPos - self.origin;
+    if(isDefined(targetVector))
+    {
+        targetAngles = vectorToAngles(targetVector);
+        
+        // Only change direction if the difference is significant (prevents rapid direction changes)
+        currentAngles = self getPlayerAngles();
+        angleDiff = targetAngles[1] - currentAngles[1];
+        
+        // Calculate absolute value manually
+        if(angleDiff < 0)
+            angleDiff = 0 - angleDiff;
+        
+        // Normalize angle difference
+        if(angleDiff > 180)
+            angleDiff = 360 - angleDiff;
+            
+        if(angleDiff > 10) // Only change direction if difference is more than 10 degrees
+        {
+            self setPlayerAngles(targetAngles);
+        }
+    }
+    
+    // Move forward
+    self setWalkDir("forward");
+}
+
+// Zombie waypoint patrol (when no hunters visible) - REMOVED, simplified logic
 
 // =========================
 // Hunter Bot Logic
@@ -345,7 +777,7 @@ hunter_bot_logic()
              }
              
                            // Check if we're already close to camp spot
-              if (isDefined(self.campWaypoint) && isDefined(level.waypoints[self.campWaypoint]))
+              if (isDefined(self.campWaypoint) && isDefined(level.waypoints) && self.campWaypoint >= 0 && self.campWaypoint < level.waypoints.size && isDefined(level.waypoints[self.campWaypoint]))
               {
                   campDist = distance(self.origin, level.waypoints[self.campWaypoint].origin);
                   if (campDist < 100) // Already close to camp spot
@@ -371,7 +803,7 @@ hunter_bot_logic()
         }
         
                  // If we're close to camp spot, just stay there
-         if (isDefined(self.campWaypoint) && isDefined(level.waypoints[self.campWaypoint]))
+         if (isDefined(self.campWaypoint) && isDefined(level.waypoints) && self.campWaypoint >= 0 && self.campWaypoint < level.waypoints.size && isDefined(level.waypoints[self.campWaypoint]))
          {
              campDist = distance(self.origin, level.waypoints[self.campWaypoint].origin);
              if (campDist < 100) // Close to camp spot
@@ -391,16 +823,11 @@ hunter_bot_logic()
 // Helper Functions
 // =========================
 
-// Find nearest visible hunter for zombie
-find_nearest_visible_hunter()
+// Find nearest hunter for zombie (any hunter, not just visible ones)
+find_nearest_hunter()
 {
     nearest = undefined;
     minDist = 999999;
-    
-    if (!isDefined(level.waypoints))
-    {
-        return undefined;
-    }
     
     players = getEntArray("player", "classname");
     for(i = 0; i < players.size; i++)
@@ -415,13 +842,8 @@ find_nearest_visible_hunter()
             dist = distance(self.origin, player.origin);
             if(dist < minDist)
             {
-                                 // Check line of sight - more strict to prevent seeing through walls
-                 trace = bulletTrace(self.origin + (0,0,50), player.origin + (0,0,50), false, self);
-                 if(isDefined(trace["fraction"]) && trace["fraction"] > 0.5) // Hunter is visible (threshold aligned with zombie visibility)
-                {
-                    minDist = dist;
-                    nearest = player;
-                }
+                minDist = dist;
+                nearest = player;
             }
         }
     }
@@ -475,8 +897,8 @@ find_random_camp_waypoint()
         return 0;
     }
         
-    result = randomInt(level.waypoints.size);
-    if (!isDefined(result))
+    result = self GetNearestStaticWaypoint(self.origin);
+    if (!isDefined(result) || result == -1)
         result = 0;
     return result;
 }
@@ -484,7 +906,7 @@ find_random_camp_waypoint()
 // Move to specific waypoint
 move_to_waypoint(waypointIndex)
 {
-    if (!isDefined(level.waypoints) || !isDefined(level.waypoints[waypointIndex]))
+    if (!isDefined(waypointIndex) || !isDefined(level.waypoints) || !isDefined(level.waypoints[waypointIndex]))
     {
         return;
     }
@@ -504,7 +926,7 @@ move_to_waypoint(waypointIndex)
          }
          else
          {
-             self.currentWaypoint = randomInt(level.waypoints.size);
+             self.currentWaypoint = self GetNearestStaticWaypoint(self.origin);
              if (!isDefined(self.currentWaypoint))
                  self.currentWaypoint = 0;
          }
@@ -524,24 +946,10 @@ move_to_waypoint(waypointIndex)
              // Only pick new camp spot if we're really stuck and can't reach current one
              self.campWaypoint = self find_random_camp_waypoint();
              iPrintlnBold("Bot " + self.name + " camp waypoint timeout, picking new camp spot");
+             self.waypointStartTime = getTime();
+             return;
          }
-         else
-         {
-             // For zombies, force a completely new random waypoint and direction
-             self.currentWaypoint = randomInt(level.waypoints.size);
-             if (!isDefined(self.currentWaypoint))
-                 self.currentWaypoint = 0;
-             
-             // Force random direction movement
-             randomAngle = randomInt(360);
-             self setPlayerAngles((0, randomAngle, 0));
-             wait 0.1;
-             self setWalkDir("forward");
-             
-             iPrintlnBold("Bot " + self.name + " waypoint timeout, forcing new direction " + randomAngle);
-         }
-         self.waypointStartTime = getTime();
-         return;
+         // Zombies don't use waypoint timeout - let A* pathfinding handle movement
      }
     
                    // Calculate direction and move
@@ -643,24 +1051,7 @@ move_to_waypoint(waypointIndex)
              self.campWaypoint = self find_random_camp_waypoint();
              iPrintlnBold("Bot " + self.name + " path to camp blocked, picking new camp spot");
          }
-         else
-         {
-             // For zombies, force a completely new random waypoint and direction
-             self.currentWaypoint = randomInt(level.waypoints.size);
-             if (!isDefined(self.currentWaypoint))
-                 self.currentWaypoint = 0;
-             
-             // Force random direction movement to break out of stuck state
-             randomAngle = randomInt(360);
-             self setPlayerAngles((0, randomAngle, 0));
-             wait 0.1;
-             self setWalkDir("forward");
-             
-             iPrintlnBold("Bot " + self.name + " path blocked, forcing new direction " + randomAngle + " to waypoint " + self.currentWaypoint);
-         }
-         
-         // Reset waypoint timer when picking new waypoint
-         self.waypointStartTime = getTime();
+         // Zombies don't use path blocking fallback - let A* pathfinding handle movement
      }
 }
 
@@ -821,9 +1212,9 @@ find_best_waypoint_towards_target(target)
             }
         }
         
-        // Last resort: random waypoint
+        // Last resort: nearest waypoint
         if (isDefined(level.waypoints) && level.waypoints.size > 0)
-            return randomInt(level.waypoints.size);
+            return self GetNearestStaticWaypoint(self.origin);
         else
             return undefined;
     }
@@ -841,11 +1232,11 @@ patrol_random_waypoints()
         return;
     }
         
-    // Pick random waypoint if we don't have one
+    // Pick nearest waypoint if we don't have one
     if (!isDefined(self.currentWaypoint))
     {
-        self.currentWaypoint = randomInt(level.waypoints.size);
-        if (!isDefined(self.currentWaypoint))
+        self.currentWaypoint = self GetNearestStaticWaypoint(self.origin);
+        if (!isDefined(self.currentWaypoint) || self.currentWaypoint == -1)
             self.currentWaypoint = 0;
     }
     
@@ -923,12 +1314,7 @@ patrol_random_waypoints()
              // Both sides blocked, pick new waypoint
              if (self.pers["team"] == "allies")
                  self.campWaypoint = self find_random_camp_waypoint();
-             else
-             {
-                 self.currentWaypoint = randomInt(level.waypoints.size);
-                 if (!isDefined(self.currentWaypoint))
-                     self.currentWaypoint = 0;
-             }
+             // Zombies don't use alternative path fallback - let A* pathfinding handle movement
          }
      }
      else
@@ -936,11 +1322,63 @@ patrol_random_waypoints()
          // Both sides blocked, pick new waypoint
          if (self.pers["team"] == "allies")
              self.campWaypoint = self find_random_camp_waypoint();
-         else
-         {
-             self.currentWaypoint = randomInt(level.waypoints.size);
-             if (!isDefined(self.currentWaypoint))
-                 self.currentWaypoint = 0;
-         }
+         // Zombies don't use alternative path fallback - let A* pathfinding handle movement
      }
-       }
+}
+
+GetNearestStaticWaypoint(pos)
+{
+	self endon("player_killed");
+
+	if(!isDefined(level.waypoints) || level.waypointCount == 0)
+	{
+		return -1;
+	}
+
+	nearestWaypoint = -1;
+	nearestDistance = 9999999999;
+	nearestZ = 9999999999;
+	nearestXY = 9999999999;
+  
+	for(i = 0; i < level.waypointCount; i++)
+	{
+		distance = Distance(pos, level.waypoints[i].origin);
+		distanceX = level.waypoints[i].origin[0] - Pos[0];
+		distanceY = level.waypoints[i].origin[1] - Pos[1];
+		distanceZ = level.waypoints[i].origin[2] - Pos[2];
+
+    
+		if(distance < nearestDistance)
+		{              
+			if(nearestZ < distanceZ && (distanceX < 175 || distanceY < 175) && (distanceX < nearestXY || distanceY < nearestXY))
+			{
+				if(distanceX < distanceY)
+				{
+					nearestXY = distanceX;
+				}
+				else
+				{
+					nearestXY = distanceY;
+				}
+		
+				trace = bullettrace(pos + (0,0,50), level.waypoints[i].origin + (0,0,50), false, self);
+				if(trace["fraction"] == 1)
+				{
+					nearestDistance = distance;  
+					nearestZ = distanceZ;    
+					nearestWaypoint = i;
+				}
+			}     
+			else
+			{
+				trace = bullettrace(pos + (0,0,50), level.waypoints[i].origin + (0,0,50), false, self);
+				if(trace["fraction"] == 1)
+				{
+					nearestDistance = distance;    
+					nearestWaypoint = i;
+				}
+			}       
+		}
+	}
+	return nearestWaypoint;
+}
