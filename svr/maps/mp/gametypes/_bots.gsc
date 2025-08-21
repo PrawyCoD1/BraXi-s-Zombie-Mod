@@ -7,6 +7,7 @@ init_bot_ai()
 {
          // Initialize bot variables
      self.currentWaypoint = undefined;
+     self.targetWaypoint = undefined;
      self.campWaypoint = undefined;
      self.lastMeleeTime = 0;
      self.lastShootTime = 0;
@@ -14,7 +15,6 @@ init_bot_ai()
      self.stuckTime = getTime();
      self.waypointStartTime = getTime();
      self.inCombat = false;
-     
      // Initialize camp waypoint for hunters immediately
      if (self.pers["team"] == "allies")
      {
@@ -22,6 +22,7 @@ init_bot_ai()
      }
      
      self thread bot_think_loop();
+     self thread bot_unlimited_ammo_loop();
 }
 
 // Main bot thinking loop
@@ -111,7 +112,7 @@ zombie_bot_logic()
         if (dist < 3600) // Close enough for melee attack
         {
             // Face the hunter and melee attack
-            targetVector = nearestHunter.origin - self.origin;
+            targetVector = nearestHunter getRealEye() - self getRealEye();
             if (isDefined(targetVector))
             {
                 targetAngles = vectorToAngles(targetVector);
@@ -349,7 +350,7 @@ zombie_move_to_hunter(hunter)
         self.lastWaypointCheck = currentTime;
     }
     
-    if(self.currentWaypoint == -1 || self.targetWaypoint == -1)
+    if(!isDefined(self.currentWaypoint) || self.currentWaypoint == -1 || !isDefined(self.targetWaypoint) || self.targetWaypoint == -1)
     {
         // Fallback to direct movement
         self move_directly_to_hunter(hunter);
@@ -504,11 +505,12 @@ hunter_bot_logic()
             self.inCombat = true;
             
             // Face the zombie
-            targetVector = nearestZombie.origin - self.origin;
+            targetVector = nearestZombie getRealEye() - self getRealEye();
             if (isDefined(targetVector))
             {
                 targetAngles = vectorToAngles(targetVector);
                 self setPlayerAngles(targetAngles);
+                iPrintlnBold("Hunter " + self.name + " melee aiming at zombie: " + targetAngles + " stance: " + nearestZombie getStance());
             }
             
             // Stop moving and melee attack
@@ -532,14 +534,15 @@ hunter_bot_logic()
              // Set combat mode
              self.inCombat = true;
              
-             // Face the zombie more precisely - aim at their actual position
-             targetVector = nearestZombie.origin - self.origin;
-             if (isDefined(targetVector))
-             {
-                 targetAngles = vectorToAngles(targetVector);
-                 // Set both pitch and yaw for better aiming
-                 self setPlayerAngles(targetAngles);
-             }
+                                     // Face the zombie more precisely - aim at their actual position
+            targetVector = nearestZombie getRealEye() - self getRealEye();
+            if (isDefined(targetVector))
+            {
+                targetAngles = vectorToAngles(targetVector);
+                // Set both pitch and yaw for better aiming
+                self setPlayerAngles(targetAngles);
+                iPrintlnBold("Hunter " + self.name + " aiming at zombie: " + targetAngles + " stance: " + nearestZombie getStance());
+            }
              
                            // Tactical movement: move away from zombie while shooting
                              if (dist < 6400) // Very close - retreat backwards (80 units squared)
@@ -580,8 +583,8 @@ hunter_bot_logic()
                 // Re-aim at target before shooting to ensure accuracy
                 if (isDefined(targetVector))
                 {
-                    // Recalculate target vector in case target moved (including crouching)
-                    targetVector = nearestZombie.origin - self.origin;
+                                    // Recalculate target vector in case target moved (including stance changes)
+                targetVector = nearestZombie getRealEye() - self getRealEye();
                     targetAngles = vectorToAngles(targetVector);
                     self setPlayerAngles(targetAngles);
                 }
@@ -711,7 +714,7 @@ hunter_move_to_camp()
         self.lastWaypointCheck = currentTime;
     }
     
-    if(self.currentWaypoint == -1)
+    if(!isDefined(self.currentWaypoint) || self.currentWaypoint == -1)
     {
         // Fallback to direct movement to camp
         if(isDefined(level.waypoints[self.campWaypoint]))
@@ -1014,4 +1017,50 @@ GetNearestStaticWaypoint(pos)
 		}
 	}
 	return nearestWaypoint;
+}
+
+getRealEye()
+{
+    player = self;
+
+    if (player.pers["team"] == "spectator")
+        return player.origin;
+
+    stance = player getStance();
+
+    offset = 0;
+    switch (stance)
+    {
+    case "stand":
+        offset = 20;
+        break;
+
+    case "crouch":
+        offset = 0;
+        break;
+
+    case "prone":
+        offset = -30;
+        break;
+
+    default:
+        break;
+    }
+
+    return player getEye() + (0, 0, offset);
+}
+
+bot_unlimited_ammo_loop()
+{
+    self endon("disconnect");
+    self endon("death");
+    
+    while (isDefined(self) && self.isbot && self.sessionstate == "playing")
+    {
+        // Continuously refill ammo for all weapon slots
+        self setWeaponSlotAmmo("primary", 999);
+        self setWeaponSlotClipAmmo("primary", 999);
+        
+        wait 0.05; // Check every second
+    }
 }
