@@ -4512,6 +4512,7 @@ parachute()
 	wait 0.3;
 	self.god = false;
 	self.isParachuting = false;
+	self setClientCvar( "ui_helptext", "" );
 
 	if( isDefined( self.parachute ) )
 		self.parachute delete();

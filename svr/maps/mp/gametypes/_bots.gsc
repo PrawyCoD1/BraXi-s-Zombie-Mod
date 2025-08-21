@@ -58,7 +58,7 @@ bot_think_loop()
 zombie_bot_logic()
 {
     // Check if zombie is stuck
-    currentDist = distance(self.origin, self.lastPosition);
+    currentDist = distancesquared(self.origin, self.lastPosition);
     if (currentDist < 10) // Barely moved
     {
         if (getTime() - self.stuckTime > 1500) // Stuck for 1.5 seconds
@@ -106,7 +106,7 @@ zombie_bot_logic()
     
     if (isDefined(nearestHunter))
     {
-        dist = distance(self.origin, nearestHunter.origin);
+        dist = distancesquared(self.origin, nearestHunter.origin);
         
         if (dist < 60) // Close enough for melee attack
         {
@@ -150,7 +150,7 @@ getway(startWp, goalWp)
 	listSize = 0;
 	s = spawnstruct();
 	s.g = 0; //start node
-	s.h = distance(level.waypoints[startWp].origin, level.waypoints[goalWp].origin);
+	s.h = distancesquared(level.waypoints[startWp].origin, level.waypoints[goalWp].origin);
 	s.f = s.g + s.h;
 	s.wpIdx = startWp;
 	s.parent = spawnstruct();
@@ -211,7 +211,7 @@ getway(startWp, goalWp)
 		//for each successor nc of n
 		for(i = 0; i < level.waypoints[n.wpIdx].childCount; i++)
 		{
-			newg = n.g + distance(level.waypoints[n.wpIdx].origin, level.waypoints[level.waypoints[n.wpIdx].children[i]].origin);
+			newg = n.g + distancesquared(level.waypoints[n.wpIdx].origin, level.waypoints[level.waypoints[n.wpIdx].children[i]].origin);
 			//if nc is in Open or Closed, and nc.g <= newg then skip
 			if(PQExists(pQOpen, level.waypoints[n.wpIdx].children[i], pQSize))
 			{   
@@ -253,7 +253,7 @@ getway(startWp, goalWp)
 			nc.parent = spawnstruct();
 			nc.parent = n;
 			nc.g = newg;
-			nc.h = distance(level.waypoints[level.waypoints[n.wpIdx].children[i]].origin, level.waypoints[goalWp].origin);
+			nc.h = distancesquared(level.waypoints[level.waypoints[n.wpIdx].children[i]].origin, level.waypoints[goalWp].origin);
 			nc.f = nc.g + nc.h;
 			nc.wpIdx = level.waypoints[n.wpIdx].children[i];
 
@@ -385,7 +385,7 @@ get_nearest_waypoint()
     {
         if(isDefined(level.waypoints[i]))
         {
-            dist = distance(self.origin, level.waypoints[i].origin);
+            dist = distancesquared(self.origin, level.waypoints[i].origin);
             if(dist < nearestDist)
             {
                 nearestDist = dist;
@@ -410,7 +410,7 @@ get_nearest_waypoint_to_position(targetPos)
     {
         if(isDefined(level.waypoints[i]))
         {
-            dist = distance(targetPos, level.waypoints[i].origin);
+            dist = distancesquared(targetPos, level.waypoints[i].origin);
             if(dist < nearestDist)
             {
                 nearestDist = dist;
@@ -447,7 +447,7 @@ move_to_waypoint_position(waypointPos)
         return;
     
     // Check if we're already close to the waypoint
-    dist = distance(self.origin, waypointPos);
+    dist = distancesquared(self.origin, waypointPos);
     if(dist < 30) // Very close to waypoint, recalculate path
     {
         // Clear current path to force recalculation
@@ -496,7 +496,7 @@ hunter_bot_logic()
     
     if (isDefined(nearestZombie))
     {
-        dist = distance(self.origin, nearestZombie.origin);
+        dist = distancesquared(self.origin, nearestZombie.origin);
         
         if (dist < 60) // Very close - melee attack
         {
@@ -653,7 +653,7 @@ hunter_bot_logic()
                            // Check if we're already close to camp spot
               if (isDefined(self.campWaypoint) && isDefined(level.waypoints) && self.campWaypoint >= 0 && self.campWaypoint < level.waypoints.size && isDefined(level.waypoints[self.campWaypoint]))
               {
-                  campDist = distance(self.origin, level.waypoints[self.campWaypoint].origin);
+                  campDist = distancesquared(self.origin, level.waypoints[self.campWaypoint].origin);
                   if (campDist < 100) // Already close to camp spot
                   {
                       self setWalkDir("none"); // Stop and camp
@@ -679,7 +679,7 @@ hunter_bot_logic()
                  // If we're close to camp spot, just stay there
          if (isDefined(self.campWaypoint) && isDefined(level.waypoints) && self.campWaypoint >= 0 && self.campWaypoint < level.waypoints.size && isDefined(level.waypoints[self.campWaypoint]))
          {
-             campDist = distance(self.origin, level.waypoints[self.campWaypoint].origin);
+             campDist = distancesquared(self.origin, level.waypoints[self.campWaypoint].origin);
              if (campDist < 100) // Close to camp spot
              {
                  self setWalkDir("none"); // Stop and camp
@@ -774,7 +774,7 @@ find_nearest_hunter()
         // Look for hunters (allies team)
         if(player.pers["team"] == "allies")
         {
-            dist = distance(self.origin, player.origin);
+            dist = distancesquared(self.origin, player.origin);
             if(dist < minDist)
             {
                 minDist = dist;
@@ -807,7 +807,7 @@ find_nearest_visible_zombie()
         // Look for zombies (axis team)
         if(player.pers["team"] == "axis")
         {
-            dist = distance(self.origin, player.origin);
+            dist = distancesquared(self.origin, player.origin);
             if(dist < minDist)
             {
                 // Check line of sight - more lenient for hunters, account for crouching
@@ -848,7 +848,7 @@ move_to_waypoint(waypointIndex)
         
     targetOrigin = level.waypoints[waypointIndex].origin;
     dir = targetOrigin - self.origin;
-    dist = distance(self.origin, targetOrigin);
+    dist = distancesquared(self.origin, targetOrigin);
     
          if (dist < 50) // Close to waypoint, pick new one
      {
@@ -1006,7 +1006,7 @@ GetNearestStaticWaypoint(pos)
 		if(!isDefined(level.waypoints[i]) || !isDefined(level.waypoints[i].origin))
 			continue;
 			
-		distance = Distance(pos, level.waypoints[i].origin);
+		distance = distancesquared(pos, level.waypoints[i].origin);
 		if(distance < nearestDistance)
 		{
 			nearestDistance = distance;
