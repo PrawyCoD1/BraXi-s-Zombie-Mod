@@ -515,6 +515,7 @@ Callback_PlayerKilled(eInflictor, attacker, iDamage, sMeansOfDeath, sWeapon, vDi
 {
 	self endon("spawned");
 	self endon("disconnect");
+	self notify("player_killed");
 	
 	if(self.sessionteam == "spectator")
 		return;
