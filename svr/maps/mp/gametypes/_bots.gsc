@@ -67,8 +67,13 @@ zombie_bot_logic()
             self setWalkDir("none");
             wait 0.2;
             
-            // Pick a new nearest waypoint to get unstuck
-            self.currentWaypoint = self GetNearestStaticWaypoint(self.origin);
+            // Pick a new nearest waypoint to get unstuck (with caching)
+            currentTime = getTime();
+            if(!isDefined(self.lastWaypointCheck) || currentTime - self.lastWaypointCheck > 500) // Check every 0.5 seconds when stuck
+            {
+                self.currentWaypoint = self GetNearestStaticWaypoint(self.origin);
+                self.lastWaypointCheck = currentTime;
+            }
             self.stuckTime = getTime();
             self.waypointStartTime = getTime();
             
@@ -139,7 +144,6 @@ zombie_bot_logic()
 
 getway(startWp, goalWp)
 {
-
 	pQOpen = [];
 	pQSize = 0;
 	closedList = [];
@@ -330,17 +334,22 @@ ListExists(list, n, listSize)
 // A* Pathfinding System
 // =========================
 
-// Simple zombie movement to hunter using A* pathfinding
+// Simple zombie movement to hunter using A* pathfinding with caching
 zombie_move_to_hunter(hunter)
 {
     if(!isDefined(hunter) || !isAlive(hunter))
         return;
     
-    // Get current waypoint and target waypoint
-    currentWp = self GetNearestStaticWaypoint(self.origin);
-    targetWp = self GetNearestStaticWaypoint(hunter.origin);
+    // Cache waypoint results to prevent excessive calls
+    currentTime = getTime();
+    if(!isDefined(self.lastWaypointCheck) || currentTime - self.lastWaypointCheck > 1000) // Check every 1 second
+    {
+        self.currentWaypoint = self GetNearestStaticWaypoint(self.origin);
+        self.targetWaypoint = self GetNearestStaticWaypoint(hunter.origin);
+        self.lastWaypointCheck = currentTime;
+    }
     
-    if(currentWp == -1 || targetWp == -1)
+    if(self.currentWaypoint == -1 || self.targetWaypoint == -1)
     {
         // Fallback to direct movement
         self move_directly_to_hunter(hunter);
@@ -348,7 +357,7 @@ zombie_move_to_hunter(hunter)
     }
     
     // Use A* pathfinding to get next waypoint
-    nextWp = self getway(currentWp, targetWp);
+    nextWp = self getway(self.currentWaypoint, self.targetWaypoint);
     
     if(isDefined(nextWp) && nextWp != -1 && isDefined(level.waypoints[nextWp]))
     {
@@ -684,7 +693,7 @@ hunter_bot_logic()
     }
 }
 
-// Hunter movement to camp spot using A* pathfinding
+// Hunter movement to camp spot using A* pathfinding with caching
 hunter_move_to_camp()
 {
     if(!isDefined(self.campWaypoint) || self.campWaypoint == -1)
@@ -694,16 +703,20 @@ hunter_move_to_camp()
         return;
     }
     
-    // Get current waypoint and camp waypoint
-    currentWp = self GetNearestStaticWaypoint(self.origin);
-    targetWp = self.campWaypoint;
+    // Cache waypoint results to prevent excessive calls
+    currentTime = getTime();
+    if(!isDefined(self.lastWaypointCheck) || currentTime - self.lastWaypointCheck > 1000) // Check every 1 second
+    {
+        self.currentWaypoint = self GetNearestStaticWaypoint(self.origin);
+        self.lastWaypointCheck = currentTime;
+    }
     
-    if(currentWp == -1 || targetWp == -1)
+    if(self.currentWaypoint == -1)
     {
         // Fallback to direct movement to camp
-        if(isDefined(level.waypoints[targetWp]))
+        if(isDefined(level.waypoints[self.campWaypoint]))
         {
-            waypointPos = level.waypoints[targetWp].origin;
+            waypointPos = level.waypoints[self.campWaypoint].origin;
             targetVector = waypointPos - self.origin;
             if(isDefined(targetVector))
             {
@@ -716,7 +729,7 @@ hunter_move_to_camp()
     }
     
     // Use A* pathfinding to get next waypoint
-    nextWp = self getway(currentWp, targetWp);
+    nextWp = self getway(self.currentWaypoint, self.campWaypoint);
     
     if(isDefined(nextWp) && nextWp != -1 && isDefined(level.waypoints[nextWp]))
     {
@@ -727,9 +740,9 @@ hunter_move_to_camp()
     else
     {
         // No path found, move directly towards camp
-        if(isDefined(level.waypoints[targetWp]))
+        if(isDefined(level.waypoints[self.campWaypoint]))
         {
-            waypointPos = level.waypoints[targetWp].origin;
+            waypointPos = level.waypoints[self.campWaypoint].origin;
             targetVector = waypointPos - self.origin;
             if(isDefined(targetVector))
             {
@@ -987,47 +1000,17 @@ GetNearestStaticWaypoint(pos)
 
 	nearestWaypoint = -1;
 	nearestDistance = 9999999999;
-	nearestZ = 9999999999;
-	nearestXY = 9999999999;
   
 	for(i = 0; i < level.waypointCount; i++)
 	{
+		if(!isDefined(level.waypoints[i]) || !isDefined(level.waypoints[i].origin))
+			continue;
+			
 		distance = Distance(pos, level.waypoints[i].origin);
-		distanceX = level.waypoints[i].origin[0] - Pos[0];
-		distanceY = level.waypoints[i].origin[1] - Pos[1];
-		distanceZ = level.waypoints[i].origin[2] - Pos[2];
-
-    
 		if(distance < nearestDistance)
-		{              
-			if(nearestZ < distanceZ && (distanceX < 175 || distanceY < 175) && (distanceX < nearestXY || distanceY < nearestXY))
-			{
-				if(distanceX < distanceY)
-				{
-					nearestXY = distanceX;
-				}
-				else
-				{
-					nearestXY = distanceY;
-				}
-		
-				trace = bullettrace(pos + (0,0,50), level.waypoints[i].origin + (0,0,50), false, self);
-				if(trace["fraction"] == 1)
-				{
-					nearestDistance = distance;  
-					nearestZ = distanceZ;    
-					nearestWaypoint = i;
-				}
-			}     
-			else
-			{
-				trace = bullettrace(pos + (0,0,50), level.waypoints[i].origin + (0,0,50), false, self);
-				if(trace["fraction"] == 1)
-				{
-					nearestDistance = distance;    
-					nearestWaypoint = i;
-				}
-			}       
+		{
+			nearestDistance = distance;
+			nearestWaypoint = i;
 		}
 	}
 	return nearestWaypoint;
