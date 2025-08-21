@@ -4531,8 +4531,8 @@ gameMonitor()
 			{
 //########## CVARS ####################//
 
-			if( !isDefined( player.isInVehicle ) )
-				player setClientCvar( "ui_helptext", "" );
+			//if( !isDefined( player.isInVehicle ) )
+				//player setClientCvar( "ui_helptext", "" );
 
 //######## PARACHUTE ##################//
 			if( !isDefined( player.isInVehicle ) && !player.isParachuting && !player isOnGround() && isAlive( player ) && isDefined(player.pers["team"]) && player.pers["team"] == "allies" && level.map != "bx_pipe" )

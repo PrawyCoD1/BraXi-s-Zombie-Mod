@@ -29,6 +29,7 @@ main()
 		return;
 
 	precacheModel( "xmodel/vehicle_german_kubelwagen" );
+	precacheShellShock( "vehicle_driver" );
 
 	vehicles = getEntArray( "mp_brax_vehicle", "classname" );
 	if( !vehicles.size )
@@ -78,6 +79,13 @@ waitForUse()
 		{
 			if( distance( self.origin, players[i].origin ) < 82 )
 			{
+				// Show vehicle interaction message when player is close but not in vehicle
+				if( !isDefined( players[i].isInVehicle ) )
+				{
+					players[i] setClientCvar( "ui_helptext", "^2Press ^1USE ^2to enter vehicle^7" );
+					players[i].showingVehicleMessage = true;
+				}
+				
 				if( players[i] useButtonPressed() && isDefined( self.driver ) && self.driver == players[i] )
 				{
 					players[i] iPrintlnBold( "You left the vehicle" );
@@ -158,6 +166,15 @@ waitForUse()
 					players[i] linkTo( self );
 					wait 0.4;
 					continue;
+				}
+			}
+			else
+			{
+				// Clear vehicle message when player moves away
+				if( isDefined( players[i].showingVehicleMessage ) && !isDefined( players[i].isInVehicle ) )
+				{
+					players[i] setClientCvar( "ui_helptext", "" );
+					players[i].showingVehicleMessage = false;
 				}
 			}
 		}
@@ -303,10 +320,14 @@ initialize()
 			self.driver maps\mp\gametypes\_util::disableWeapon();
 			self.driver.maxspeed = 190;
 
-			if( self.movetype == "forward" )
-				self.driver setClientCvar( "ui_helptext", "^2Speed: ^1" + (32 * self.speed) + " ^2(^1" + (self.speed * 50) + " percent^2)" );
-			else 
-				self.driver setClientCvar( "ui_helptext", "^1MELEE ^2to drive forward and ^1FIRE^2 to drive backward | ^1USE^2 to exit vehicle" );
+			// Only show driver messages if player is actually in the vehicle
+			if( isDefined( self.driver.isInVehicle ) && self.driver.isInVehicle == self )
+			{
+				if( self.movetype == "forward" )
+					self.driver setClientCvar( "ui_helptext", "^2Speed: ^1" + (32 * self.speed) + " ^2(^1" + (self.speed * 50) + " percent^2)" );
+				else 
+					self.driver setClientCvar( "ui_helptext", "^1MELEE ^2to drive forward and ^1FIRE^2 to drive backward | ^1USE^2 to exit vehicle" );
+			}
 		}
 
 		if( self.movetype != oldMovetype )
@@ -343,6 +364,7 @@ cleanUpVehicle()
 			self setClientCvar( "cg_fov", 80 );
 			self setClientCvar( "cl_stance", 0 );
 			self stopShellShock();
+			self setClientCvar( "ui_helptext", "" ); // Clear HUD when exiting vehicle
 		}
 		if( isDefined( self.isInVehicle.passenger1 ) && self.isInVehicle.passenger1 == self )
 			self.isInVehicle.passenger1 = undefined;
@@ -400,4 +422,42 @@ kickOut( player, forwardLeftC, forwardRightC, forwardCentreC, backwardLeftC, bac
 		}
 	}
 }
+
+// =========================
+// HUD Message Functions
+// =========================
+
+// Add HUD message for vehicle interactions
+addVehicleHudMessage(message)
+{
+    self.showingVehicleMessage = true;
+    self setClientCvar( "ui_helptext", message );
+}
+
+// Remove HUD message
+removeVehicleHudMessage()
+{
+    self.showingVehicleMessage = false;
+    self setClientCvar( "ui_helptext", "" );
+}
+
+// Add HUD message using ui_helptext (like existing vehicle code)
+addVehicleHelpText(message)
+{
+    if(isDefined(self))
+    {
+        self setClientCvar("ui_helptext", message);
+    }
+}
+
+// Remove HUD message using ui_helptext
+removeVehicleHelpText()
+{
+    if(isDefined(self))
+    {
+        self setClientCvar("ui_helptext", "");
+    }
+}
+
+
 
