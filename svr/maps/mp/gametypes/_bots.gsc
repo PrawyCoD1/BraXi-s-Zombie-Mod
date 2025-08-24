@@ -360,11 +360,37 @@ zombie_move_to_hunter(hunter)
     // Use A* pathfinding to get next waypoint
     nextWp = self getway(self.currentWaypoint, self.targetWaypoint);
     
+    iPrintlnBold(self.name + " DEBUG: currentWaypoint=" + self.currentWaypoint + ", targetWaypoint=" + self.targetWaypoint + ", nextWp=" + nextWp);
+    
     if(isDefined(nextWp) && nextWp != -1 && isDefined(level.waypoints[nextWp]))
     {
         // Move to the next waypoint in the A* path
         waypointPos = level.waypoints[nextWp].origin;
+        
+            iPrintlnBold(self.name + " moving to waypoint " + nextWp + " at distance: " + distancesquared(self.origin, waypointPos));
         self move_to_waypoint_position(waypointPos);
+        
+        // Update current waypoint if we're very close to the target waypoint
+        dist = distancesquared(self.origin, waypointPos);
+        if(dist < 900) // Very close to waypoint
+        {
+            // Check if we've reached the target waypoint
+            if(nextWp == self.targetWaypoint)
+            {
+                iPrintlnBold(self.name + " reached target waypoint " + nextWp + ", recalculating path to hunter");
+                // Recalculate path to hunter since we've reached the target waypoint
+                self.targetWaypoint = self GetNearestStaticWaypoint(hunter.origin);
+                self.lastWaypointCheck = 0; // Reset timer to force recalculation
+            }
+            else
+            {
+                self.currentWaypoint = nextWp;
+                iPrintlnBold(self.name + " reached waypoint " + nextWp + ", updating current waypoint");
+                
+                // Force recalculation of path to get next waypoint
+                self.lastWaypointCheck = 0; // Reset timer to force recalculation
+            }
+        }
     }
     else
     {
@@ -480,7 +506,53 @@ move_to_waypoint_position(waypointPos)
         }
     }
     
-    // Move forward
+    // Only apply waypoint type when very close to the waypoint (within 50 units)
+    if(dist < 2500) // 50 units squared
+    {
+        waypointType = self get_waypoint_type_at_position(waypointPos);
+        if(isDefined(waypointType))
+        {
+            // Debug output for waypoint type (less frequent)
+            if( !isDefined(self.lastTypeDebug) || getTime() - self.lastTypeDebug > 2000) // Only show every 2 seconds
+            {
+                iPrintlnBold(self.name + " at waypoint using type: " + waypointType + " at distance: " + dist);
+                self.lastTypeDebug = getTime();
+            }
+            
+            // Only change stance if it's different from current stance
+            currentStance = self getStance();
+            targetStance = "";
+            
+            switch(waypointType)
+            {
+                case "jump":
+                    targetStance = "jump";
+                    break;
+                    
+                case "crouch":
+                    targetStance = "crouch";
+                    break;
+                    
+                case "prone":
+                    targetStance = "prone";
+                    break;
+                    
+                case "stand":
+                default:
+                    targetStance = "stand";
+                    break;
+            }
+            
+            // Only change stance if it's different from current stance
+            if(currentStance != targetStance)
+            {
+                self setBotStance(targetStance);
+                wait 0.1; // Small delay to ensure stance change takes effect
+            }
+        }
+    }
+    
+    // Always move forward regardless of waypoint type
     self setWalkDir("forward");
 }
 
@@ -492,6 +564,13 @@ move_to_waypoint_position(waypointPos)
 
 hunter_bot_logic()
 {
+    // Debug: Check if hunter bot logic is running
+    if(!isDefined(self.lastHunterDebug) || getTime() - self.lastHunterDebug > 5000) // Every 5 seconds
+    {
+        iPrintlnBold(self.name + " DEBUG: Hunter bot logic running - campWaypoint=" + self.campWaypoint);
+        self.lastHunterDebug = getTime();
+    }
+    
     // Find nearest visible zombie
     nearestZombie = self find_nearest_visible_zombie();
     
@@ -510,7 +589,6 @@ hunter_bot_logic()
             {
                 targetAngles = vectorToAngles(targetVector);
                 self setPlayerAngles(targetAngles);
-                iPrintlnBold("Hunter " + self.name + " melee aiming at zombie: " + targetAngles + " stance: " + nearestZombie getStance());
             }
             
             // Stop moving and melee attack
@@ -557,12 +635,10 @@ hunter_bot_logic()
                   if (randomInt(2) == 0)
                   {
                       self setWalkDir("left");
-                      iPrintlnBold("Hunter " + self.name + " strafing left from zombie at distance " + dist);
                   }
                   else
                   {
                       self setWalkDir("right");
-                      iPrintlnBold("Hunter " + self.name + " strafing right from zombie at distance " + dist);
                   }
               }
               else // Far enough - stop to aim better
@@ -657,8 +733,50 @@ hunter_bot_logic()
               if (isDefined(self.campWaypoint) && isDefined(level.waypoints) && self.campWaypoint >= 0 && self.campWaypoint < level.waypoints.size && isDefined(level.waypoints[self.campWaypoint]))
               {
                   campDist = distancesquared(self.origin, level.waypoints[self.campWaypoint].origin);
+                  iPrintlnBold(self.name + " DEBUG: Checking camp spot - campDist=" + campDist + ", campWaypoint=" + self.campWaypoint);
                   if (campDist < 10000) // Already close to camp spot
                   {
+                                             // Apply waypoint type before camping
+                       if(campDist < 10000) // 100 units squared (increased from 50)
+                       {
+                           waypointType = self get_waypoint_type_at_position(level.waypoints[self.campWaypoint].origin);
+                           iPrintlnBold(self.name + " DEBUG: campDist=" + campDist + ", waypointType=" + waypointType + ", campWaypoint=" + self.campWaypoint);
+                           if(isDefined(waypointType))
+                           {
+                              
+                              // Only change stance if it's different from current stance
+                              currentStance = self getStance();
+                              targetStance = "";
+                              
+                              switch(waypointType)
+                              {
+                                  case "jump":
+                                      targetStance = "jump";
+                                      break;
+                                      
+                                  case "crouch":
+                                      targetStance = "crouch";
+                                      break;
+                                      
+                                  case "prone":
+                                      targetStance = "prone";
+                                      break;
+                                      
+                                  case "stand":
+                                  default:
+                                      targetStance = "stand";
+                                      break;
+                              }
+                              
+                              // Only change stance if it's different from current stance
+                              if(currentStance != targetStance)
+                              {
+                                  self setBotStance(targetStance);
+                                  wait 0.1; // Small delay to ensure stance change takes effect
+                              }
+                          }
+                      }
+                      
                       self setWalkDir("none"); // Stop and camp
                       self.waypointStartTime = getTime(); // Reset waypoint timer to prevent timeout
                       return;
@@ -685,6 +803,47 @@ hunter_bot_logic()
              campDist = distancesquared(self.origin, level.waypoints[self.campWaypoint].origin);
              if (campDist < 10000) // Close to camp spot
              {
+                 // Apply waypoint type before camping
+                 if(campDist < 10000) // 100 units squared (increased from 50)
+                 {
+                     waypointType = self get_waypoint_type_at_position(level.waypoints[self.campWaypoint].origin);
+                     if(isDefined(waypointType))
+                     {
+                         iPrintlnBold(self.name + " at camp waypoint using type: " + waypointType + " at distance: " + campDist);
+                         
+                         // Only change stance if it's different from current stance
+                         currentStance = self getStance();
+                         targetStance = "";
+                         
+                         switch(waypointType)
+                         {
+                             case "jump":
+                                 targetStance = "jump";
+                                 break;
+                                 
+                             case "crouch":
+                                 targetStance = "crouch";
+                                 break;
+                                 
+                             case "prone":
+                                 targetStance = "prone";
+                                 break;
+                                 
+                             case "stand":
+                             default:
+                                 targetStance = "stand";
+                                 break;
+                         }
+                         
+                         // Only change stance if it's different from current stance
+                         if(currentStance != targetStance)
+                         {
+                             self setBotStance(targetStance);
+                             wait 0.1; // Small delay to ensure stance change takes effect
+                         }
+                     }
+                 }
+                 
                  self setWalkDir("none"); // Stop and camp
                  self.waypointStartTime = getTime(); // Reset waypoint timer to prevent timeout
                  return;
@@ -760,6 +919,65 @@ hunter_move_to_camp()
 // =========================
 // Helper Functions
 // =========================
+
+// Get waypoint type at a specific position
+get_waypoint_type_at_position(targetPos)
+{
+    if(!isDefined(targetPos) || !isDefined(level.waypoints) || level.waypointCount == 0)
+        return undefined;
+    
+    // Find the waypoint closest to the target position
+    nearestWaypoint = -1;
+    nearestDistance = 9999999999;
+    
+    for(i = 0; i < level.waypointCount; i++)
+    {
+        if(!isDefined(level.waypoints[i]) || !isDefined(level.waypoints[i].origin))
+            continue;
+            
+        dist = distancesquared(targetPos, level.waypoints[i].origin);
+        if(dist < nearestDistance)
+        {
+            nearestDistance = dist;
+            nearestWaypoint = i;
+        }
+    }
+    
+    // If we found a waypoint within reasonable distance (within 200 units)
+    if(nearestWaypoint != -1 && nearestDistance < 40000) // 200 units squared
+    {
+        if(isDefined(level.waypoints[nearestWaypoint].type))
+        {
+            // Debug output (less frequent to avoid spam)
+            if(!isDefined(self.lastTypeDebug) || getTime() - self.lastTypeDebug > 3000) // Only show every 3 seconds
+            {
+                iPrintlnBold("Found waypoint " + nearestWaypoint + " with type: " + level.waypoints[nearestWaypoint].type + " at distance: " + nearestDistance);
+                self.lastTypeDebug = getTime();
+            }
+            return level.waypoints[nearestWaypoint].type;
+        }
+        else
+        {
+            // Debug: waypoint found but no type
+            if(!isDefined(self.lastTypeDebug) || getTime() - self.lastTypeDebug > 3000)
+            {
+                iPrintlnBold("Found waypoint " + nearestWaypoint + " but no type defined at distance: " + nearestDistance);
+                self.lastTypeDebug = getTime();
+            }
+        }
+    }
+    else
+    {
+        // Debug: no waypoint found within range
+        if(!isDefined(self.lastTypeDebug) || getTime() - self.lastTypeDebug > 3000)
+        {
+            iPrintlnBold("No waypoint found within range. Nearest: " + nearestWaypoint + " at distance: " + nearestDistance);
+            self.lastTypeDebug = getTime();
+        }
+    }
+    
+    return undefined;
+}
 
 // Find nearest hunter for zombie (any hunter, not just visible ones)
 find_nearest_hunter()
@@ -855,8 +1073,51 @@ move_to_waypoint(waypointIndex)
     
          if (dist < 2500) // Close to waypoint, pick new one
      {
+         iPrintlnBold(self.name + " DEBUG: Close to waypoint - dist=" + dist + ", waypointIndex=" + waypointIndex);
          if (self.pers["team"] == "allies")
          {
+             // Apply waypoint type before camping
+             if(dist < 10000) // 100 units squared (increased from 50)
+             {
+                 waypointType = self get_waypoint_type_at_position(targetOrigin);
+                 iPrintlnBold(self.name + " DEBUG: dist=" + dist + ", waypointType=" + waypointType + ", waypointIndex=" + waypointIndex);
+                 if(isDefined(waypointType))
+                 {
+                     iPrintlnBold(self.name + " at camp waypoint using type: " + waypointType + " at distance: " + dist);
+                     
+                     // Only change stance if it's different from current stance
+                     currentStance = self getStance();
+                     targetStance = "";
+                     
+                     switch(waypointType)
+                     {
+                         case "jump":
+                             targetStance = "jump";
+                             break;
+                             
+                         case "crouch":
+                             targetStance = "crouch";
+                             break;
+                             
+                         case "prone":
+                             targetStance = "prone";
+                             break;
+                             
+                         case "stand":
+                         default:
+                             targetStance = "stand";
+                             break;
+                     }
+                     
+                     // Only change stance if it's different from current stance
+                     if(currentStance != targetStance)
+                     {
+                         self setBotStance(targetStance);
+                         wait 0.1; // Small delay to ensure stance change takes effect
+                     }
+                 }
+             }
+             
              // Hunters should stay at their camp spot, don't pick new one
              self setWalkDir("none"); // Stop moving and camp
              self.waypointStartTime = getTime(); // Reset timer to prevent timeout
@@ -904,7 +1165,7 @@ move_to_waypoint(waypointIndex)
           return;
       }
       
-             // If we're very close to the waypoint, just move forward without path checking
+                          // If we're very close to the waypoint, just move forward without path checking
                if (dist < 100) // Very close to waypoint (100 units squared / 100)
        {
            if (self.pers["team"] == "allies" && isDefined(self.inCombat) && self.inCombat)
@@ -913,12 +1174,54 @@ move_to_waypoint(waypointIndex)
            }
            else
            {
+               // Only apply waypoint type when very close to the waypoint (within 50 units)
+               if(dist < 2500) // 50 units squared
+               {
+                   waypointType = self get_waypoint_type_at_position(targetOrigin);
+                   if(isDefined(waypointType))
+                   {
+                        iPrintlnBold(self.name + " at waypoint using type: " + waypointType + " at distance: " + dist);
+                       
+                       // Only change stance if it's different from current stance
+                       currentStance = self getStance();
+                       targetStance = "";
+                       
+                       switch(waypointType)
+                       {
+                           case "jump":
+                               targetStance = "jump";
+                               break;
+                               
+                           case "crouch":
+                               targetStance = "crouch";
+                               break;
+                               
+                           case "prone":
+                               targetStance = "prone";
+                               break;
+                               
+                           case "stand":
+                           default:
+                               targetStance = "stand";
+                               break;
+                       }
+                       
+                       // Only change stance if it's different from current stance
+                       if(currentStance != targetStance)
+                       {
+                           self setBotStance(targetStance);
+                           wait 0.1; // Small delay to ensure stance change takes effect
+                       }
+                   }
+               }
+               
+               // Always move forward regardless of waypoint type
                self setWalkDir("forward");
                return;
            }
        }
        
-       // For hunters at camp spots, be extremely lenient with path checking
+              // For hunters at camp spots, be extremely lenient with path checking
        if (self.pers["team"] == "allies" && dist < 225) // Hunter close to camp spot (150 units squared / 100)
        {
            if (self.pers["team"] == "allies" && isDefined(self.inCombat) && self.inCombat)
@@ -927,6 +1230,48 @@ move_to_waypoint(waypointIndex)
            }
            else
            {
+               // Only apply waypoint type when very close to the waypoint (within 50 units)
+               if(dist < 2500) // 50 units squared
+               {
+                   waypointType = self get_waypoint_type_at_position(targetOrigin);
+                   if(isDefined(waypointType))
+                   {
+                        iPrintlnBold(self.name + " at waypoint using type: " + waypointType + " at distance: " + dist);
+                       
+                       // Only change stance if it's different from current stance
+                       currentStance = self getStance();
+                       targetStance = "";
+                       
+                       switch(waypointType)
+                       {
+                           case "jump":
+                               targetStance = "jump";
+                               break;
+                               
+                           case "crouch":
+                               targetStance = "crouch";
+                               break;
+                               
+                           case "prone":
+                               targetStance = "prone";
+                               break;
+                               
+                           case "stand":
+                           default:
+                               targetStance = "stand";
+                               break;
+                       }
+                       
+                       // Only change stance if it's different from current stance
+                       if(currentStance != targetStance)
+                       {
+                           self setBotStance(targetStance);
+                           wait 0.1; // Small delay to ensure stance change takes effect
+                       }
+                   }
+               }
+               
+               // Always move forward regardless of waypoint type
                self setWalkDir("forward");
                return;
            }
@@ -972,6 +1317,48 @@ move_to_waypoint(waypointIndex)
           }
           else
           {
+              // Only apply waypoint type when very close to the waypoint (within 50 units)
+              if(dist < 2500) // 50 units squared
+              {
+                  waypointType = self get_waypoint_type_at_position(targetOrigin);
+                  if(isDefined(waypointType))
+                  {
+                          iPrintlnBold(self.name + " at waypoint using type: " + waypointType + " at distance: " + dist);
+                      
+                      // Only change stance if it's different from current stance
+                      currentStance = self getStance();
+                      targetStance = "";
+                      
+                      switch(waypointType)
+                      {
+                          case "jump":
+                              targetStance = "jump";
+                              break;
+                              
+                          case "crouch":
+                              targetStance = "crouch";
+                              break;
+                              
+                          case "prone":
+                              targetStance = "prone";
+                              break;
+                              
+                          case "stand":
+                          default:
+                              targetStance = "stand";
+                              break;
+                      }
+                      
+                      // Only change stance if it's different from current stance
+                      if(currentStance != targetStance)
+                      {
+                          self setBotStance(targetStance);
+                          wait 0.1; // Small delay to ensure stance change takes effect
+                      }
+                  }
+              }
+              
+              // Always move forward regardless of waypoint type
               self setWalkDir("forward");
           }
           //iPrintlnBold("Bot " + self.name + " moving to waypoint " + waypointIndex);

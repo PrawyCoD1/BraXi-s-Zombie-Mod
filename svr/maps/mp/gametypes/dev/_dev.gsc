@@ -4,6 +4,8 @@ main()
 	level.wpToLink = -1;
 	level.linkSpamTimer = gettime();
 	level.saveSpamTimer = gettime();
+	level.typeSpamTimer = gettime(); // Add timer for type cycling
+	level.currentWaypointType = "stand"; // Default waypoint type
 
 	thread DrawStaticWaypoints();
 
@@ -18,7 +20,15 @@ GetButtonPressed()
   {
     if(self attackbuttonpressed())
     {
-      return "AddWaypoint";
+      // Check if scr_type cvar is set to 1 for waypoint type cycling
+      if(getcvarint("scr_type") == 1)
+      {
+        return "CycleWaypointType";
+      }
+      else
+      {
+        return "AddWaypoint";
+      }
     }
     else
     if(self usebuttonpressed())
@@ -63,6 +73,11 @@ playerstart()
         break;
       }
       
+      case "CycleWaypointType":
+      {
+        CycleWaypointType(level.playerPos);
+        break;
+      }
     
       default:
         break;
@@ -72,6 +87,83 @@ playerstart()
   }
 }
 
+////////////////////////////////////////////////////////////
+// Cycles through waypoint types: stand -> crouch -> jump -> prone -> stand
+////////////////////////////////////////////////////////////
+CycleWaypointType(pos)
+{
+  // Don't spam type cycling
+  if((gettime()-level.typeSpamTimer) < 500)
+  {
+    return;
+  }
+  level.typeSpamTimer = gettime();
+  
+  // Find the nearest waypoint
+  nearestWaypoint = -1;
+  for(i = 0; i < level.waypointCount; i++)
+  {
+    distance = distance(level.waypoints[i].origin, pos);
+    
+    if(distance <= 30.0)
+    {
+      nearestWaypoint = i;
+      break;
+    }
+  }
+  
+  // Only cycle type if we're near a waypoint
+  if(nearestWaypoint != -1)
+  {
+    // Debug: Check if waypoint has a type field
+    iprintln("^3Debug: Waypoint " + nearestWaypoint + " type check");
+    
+    // Check if waypoint has a type field, default to "stand" if not
+    if(!isDefined(level.waypoints[nearestWaypoint].type))
+    {
+      level.waypoints[nearestWaypoint].type = "stand";
+      iprintln("^3Debug: Set waypoint " + nearestWaypoint + " type to stand");
+    }
+    
+    // Get current type with fallback
+    currentType = level.waypoints[nearestWaypoint].type;
+    if(currentType == "" || !isDefined(currentType))
+    {
+      currentType = "stand";
+      level.waypoints[nearestWaypoint].type = "stand";
+    }
+    
+    iprintln("^3Debug: Current type is: " + currentType);
+    
+    switch(currentType)
+    {
+      case "stand":
+        level.waypoints[nearestWaypoint].type = "crouch";
+        iprintln("^2Waypoint " + nearestWaypoint + " Type: ^7Crouch");
+        break;
+      case "crouch":
+        level.waypoints[nearestWaypoint].type = "jump";
+        iprintln("^2Waypoint " + nearestWaypoint + " Type: ^7Jump");
+        break;
+      case "jump":
+        level.waypoints[nearestWaypoint].type = "prone";
+        iprintln("^2Waypoint " + nearestWaypoint + " Type: ^7Prone");
+        break;
+      case "prone":
+        level.waypoints[nearestWaypoint].type = "stand";
+        iprintln("^2Waypoint " + nearestWaypoint + " Type: ^7Stand");
+        break;
+      default:
+        level.waypoints[nearestWaypoint].type = "stand";
+        iprintln("^2Waypoint " + nearestWaypoint + " Type: ^7Stand (default)");
+        break;
+    }
+  }
+  else
+  {
+    iprintln("^1No waypoint nearby to change type");
+  }
+}
 
 ////////////////////////////////////////////////////////////
 // Adds a waypoint to the static waypoint list
@@ -90,12 +182,12 @@ AddWaypoint(pos)
 
   level.waypoints[level.waypointCount] = spawnstruct();
   level.waypoints[level.waypointCount].origin = pos;
-  level.waypoints[level.waypointCount].type = "stand";
+  level.waypoints[level.waypointCount].type = level.currentWaypointType;
   level.waypoints[level.waypointCount].children = [];
   level.waypoints[level.waypointCount].childCount = 0;
   level.waypointCount++;
 
-  iprintln("Waypoint Added");
+  iprintln("^3Waypoint Added ^7(Type: " + level.currentWaypointType + ")");
   
 }
 
@@ -153,6 +245,67 @@ LinkWaypoint(pos)
   }
 }
 
+////////////////////////////////////////////////////////////
+//Cycles through waypoint types (stand, crouch, jump, prone)
+////////////////////////////////////////////////////////////
+CycleWaypointType(pos)
+{
+  //dont spam type changes
+  if((gettime()-level.typeSpamTimer) < 500)
+  {
+    return;
+  }
+  level.typeSpamTimer = gettime();
+  
+  wpToChange = -1;
+  
+  for(i = 0; i < level.waypointCount; i++)
+  {
+    distance = distance(level.waypoints[i].origin, pos);
+    
+    if(distance <= 30.0)
+    {
+      wpToChange = i;
+      break;
+    }
+  }
+  
+  //if the nearest waypoint is valid
+  if(wpToChange != -1)
+  {
+    currentType = level.waypoints[wpToChange].type;
+    
+    // Cycle through types: stand -> crouch -> jump -> prone -> stand
+    switch(currentType)
+    {
+      case "stand":
+        level.waypoints[wpToChange].type = "crouch";
+        iprintln("Waypoint " + wpToChange + " type changed to: crouch");
+        break;
+      case "crouch":
+        level.waypoints[wpToChange].type = "jump";
+        iprintln("Waypoint " + wpToChange + " type changed to: jump");
+        break;
+      case "jump":
+        level.waypoints[wpToChange].type = "prone";
+        iprintln("Waypoint " + wpToChange + " type changed to: prone");
+        break;
+      case "prone":
+        level.waypoints[wpToChange].type = "stand";
+        iprintln("Waypoint " + wpToChange + " type changed to: stand");
+        break;
+      default:
+        level.waypoints[wpToChange].type = "stand";
+        iprintln("Waypoint " + wpToChange + " type set to: stand");
+        break;
+    }
+  }
+  else
+  {
+    iprintln("No waypoint found to change type");
+  }
+}
+
 
 DrawStaticWaypoints()
 {
@@ -162,22 +315,38 @@ DrawStaticWaypoints()
     {
       for(i = 0; i < level.waypointCount; i++)
       {
-      
-        color = (0,0,1);
+        // Base color based on waypoint type
+        switch(level.waypoints[i].type)
+        {
+          case "stand":
+            color = (0,0,1); // Blue for stand
+            break;
+          case "crouch":
+            color = (1,1,0); // Yellow for crouch
+            break;
+          case "jump":
+            color = (0,1,1); // Cyan for jump
+            break;
+          case "prone":
+            color = (1,0.5,0); // Orange for prone
+            break;
+          default:
+            color = (0,0,1); // Default blue
+            break;
+        }
 
-        //red for unlinked wps
+        // Override color based on connection status
         if(level.waypoints[i].childCount == 0)
         {
-          color = (1,0,0);
+          color = (1,0,0); // Red for unlinked
+        }
+        else if(level.waypoints[i].childCount == 1)
+        {
+          color = (1,0,1); // Purple for dead ends
         }
         else
-        if(level.waypoints[i].childCount == 1) //purple for dead ends
         {
-          color = (1,0,1);
-        }
-        else //green for linked
-        {
-          color = (0,1,0);
+          // Keep type-based color for well-connected waypoints
         }
 
         if(isdefined(level.players) && isdefined(level.players[0]))
@@ -317,6 +486,10 @@ SaveStaticWaypoints()
 			childstring = "    level.waypoints[" + w + "].children[" + c + "] = " + level.waypoints[w].children[c] + ";";
 			logPrint(childstring + "\n");      
 		}
+		
+		// Add waypoint type to saved output
+		waypointtype = "    level.waypoints[" + w + "].type = \"" + level.waypoints[w].type + "\";";
+		logPrint(waypointtype + "\n");
 		
 		iprintln("Waypoint " + (w + 1)+ " Saved.");		
 	}

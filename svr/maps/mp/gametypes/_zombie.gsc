@@ -767,7 +767,7 @@ playerKilled(eInflictor, attacker, iDamage, sMeansOfDeath, sWeapon, vDir, sHitLo
 		self.statusicon = "gfx/hud/death_suicide.dds";
 	}
 
-	if( level.zom["pop_head"] )
+	if( level.zom["pop_head"] && !isDefined(self.isbot) )
 	{
 		mod = sMeansOfDeath;
 		if( mod == "MOD_MELEE" && sHitLoc == "head" || mod == "MOD_HEAD_SHOT" )
@@ -929,7 +929,7 @@ cleanUp()
 	self setClientCvar( "cg_thirdperson", 0 );
 	self setClientCvar( "cg_thirdpersonrange", 65 );
 
-	if( !isDefined( self.kill_spree ) || isDefined( self.kill_spree ) && self.pers["team"] != "axis" )
+	if( !isDefined( self.kill_spree ) || isDefined( self.kill_spree ) && ( !isDefined( self.pers["team"] ) || self.pers["team"] != "axis" ) )
 		self.kill_spree = 0;
 
 	self maps\mp\gametypes\_vehicles::cleanUpVehicle();
@@ -1902,7 +1902,7 @@ makeLastMan()
 		lastmanWeapons[lastmanWeapons.size] = "super_machinegun_mp";
 		lastmanWeapons[lastmanWeapons.size] = "super_shotgun_mp";
 		lastmanWeapons[lastmanWeapons.size] = "super_plasmagun_mp";
-		lastmanWeapons[lastmanWeapons.size] = "super_railgun_mp";
+		//lastmanWeapons[lastmanWeapons.size] = "super_railgun_mp";
 		
 		// Pick random weapon from the list
 		weapon = lastmanWeapons[randomInt(lastmanWeapons.size)];
@@ -2751,11 +2751,11 @@ doBloodScreen()
 		{
 			if (isDefined(self.hud_BloodScreen[i]))
 			{
-				// Check if the HUD element is still valid before deleting
-				if (isDefined(self.hud_BloodScreen[i].x))
-				{
-					self.hud_BloodScreen[i] delete();
-				}
+				// Check if the HUD element is still valid before destroying
+                if (isDefined(self.hud_BloodScreen[b].x))
+                {
+                    self.hud_BloodScreen[b] destroy();
+                }
 			}
 		}
 	}
@@ -2806,10 +2806,10 @@ bloodscreentimer()
 			if (isDefined(self.hud_BloodScreen[b]))
 			{
 				// Check if the HUD element is still valid before destroying
-				if (isDefined(self.hud_BloodScreen[b].x))
-				{
-					self.hud_BloodScreen[b] destroy();
-				}
+                if (isDefined(self.hud_BloodScreen[b].x))
+                {
+                    self.hud_BloodScreen[b] destroy();
+                }
 			}
 		}
 	}
@@ -4219,7 +4219,14 @@ popHead( damageDir, damage )
 	if(!isdefined(self.headPopped))
 	{
 		self.headPopped = true;
-		self detach( self.headmodel , "");
+		
+		// Try to detach the head model, but ignore errors
+		if(isDefined(self.headmodel))
+		{
+			// Try to detach, but if it fails, just continue
+			// The head will still spawn even if detachment fails
+			self detach( self.headmodel , "");
+		}
 	}
 
 	if(isPlayer(self))
