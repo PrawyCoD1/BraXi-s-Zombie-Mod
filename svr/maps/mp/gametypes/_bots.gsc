@@ -52,6 +52,333 @@ bot_think_loop()
     }
 }
 
+// Patrol random waypoints
+patrol_random_waypoints()
+{
+    if (!isDefined(level.waypoints) || level.waypoints.size == 0)
+    {
+        // Fallback: move in random direction
+        randomAngle = randomInt(360);
+        self setPlayerAngles((0, randomAngle, 0));
+        self setWalkDir("forward");
+        return;
+    }
+        
+    // Pick random waypoint if we don't have one
+    if (!isDefined(self.currentWaypoint))
+    {
+        self.currentWaypoint = randomInt(level.waypoints.size);
+        if (!isDefined(self.currentWaypoint))
+            self.currentWaypoint = 0;
+        
+        // Don't apply stance change on initial spawn - wait until bot actually moves
+        self.initialized = true;
+        return;
+    }
+    
+    // Pick a random target waypoint if we don't have one or if we've reached the current target
+    if(!isDefined(self.patrolTargetWaypoint) || self.patrolTargetWaypoint == -1 || self.currentWaypoint == self.patrolTargetWaypoint)
+    {
+        self.patrolTargetWaypoint = randomInt(level.waypoints.size);
+        while(self.patrolTargetWaypoint == self.currentWaypoint && level.waypoints.size > 1)
+        {
+            self.patrolTargetWaypoint = randomInt(level.waypoints.size);
+        }
+        self.patrolStartTime = getTime(); // Reset timer when picking new target
+        iPrintlnBold(self.name + " PATROL: new target set to waypoint " + self.patrolTargetWaypoint);
+    }
+    
+    // Check if we've been trying to reach this target for too long (10 seconds)
+    if(!isDefined(self.patrolStartTime))
+        self.patrolStartTime = getTime();
+    
+    if(getTime() - self.patrolStartTime > 10000) // 10 seconds timeout
+    {
+        iPrintlnBold(self.name + " PATROL: timeout reaching target " + self.patrolTargetWaypoint + ", picking new target");
+        self.patrolTargetWaypoint = -1; // Force new target selection
+        return;
+    }
+    
+    // Use A* pathfinding to get next waypoint
+    nextWp = self getway(self.currentWaypoint, self.patrolTargetWaypoint);
+    
+    if(isDefined(nextWp) && nextWp != -1 && isDefined(level.waypoints[nextWp]))
+    {
+        // Move to the next waypoint in the A* path
+        waypointPos = level.waypoints[nextWp].origin;
+        self move_to_waypoint_position(waypointPos);
+        
+        // Update current waypoint if we're very close to the target waypoint
+        dist = distancesquared(self.origin, waypointPos);
+        iPrintlnBold(self.name + " PATROL DEBUG: distance to waypoint " + nextWp + " = " + dist + " (threshold: 2500)");
+        if(dist < 2500) // Very close to waypoint (increased threshold)
+        {
+            self.currentWaypoint = nextWp;
+            iPrintlnBold(self.name + " patrol reached waypoint " + nextWp + ", updating current waypoint");
+            
+            // Apply waypoint type stance when actually at the waypoint (but not during initialization)
+            if(!isDefined(self.initialized) || !self.initialized)
+            {
+                iPrintlnBold(self.name + " DEBUG: Skipping stance change during initialization");
+                return;
+            }
+            
+            // Check the type of the waypoint we're actually at (currentWaypoint), not the next waypoint
+            iPrintlnBold(self.name + " DEBUG: Checking waypoint type for currentWaypoint=" + self.currentWaypoint + ", waypointCount=" + level.waypointCount);
+            
+            if(isDefined(self.currentWaypoint) && self.currentWaypoint >= 0 && self.currentWaypoint < level.waypointCount)
+            {
+                waypointType = level.waypoints[self.currentWaypoint].type;
+                iPrintlnBold(self.name + " DEBUG: Current waypoint " + self.currentWaypoint + " has type: " + waypointType);
+            }
+            else
+            {
+                waypointType = undefined;
+                iPrintlnBold(self.name + " DEBUG: Invalid currentWaypoint: " + self.currentWaypoint);
+            }
+            
+            if(isDefined(waypointType))
+            {
+                iPrintlnBold(self.name + " at waypoint " + self.currentWaypoint + " using type: " + waypointType);
+                
+                // Only change stance if it's different from current stance
+                currentStance = self getStance();
+                targetStance = "";
+                
+                switch(waypointType)
+                {
+                    case "jump":
+                        targetStance = "jump";
+                        iPrintlnBold(self.name + " JUMP WAYPOINT DETECTED at waypoint " + self.currentWaypoint);
+                        
+                        // For jump waypoints, we need to actually make the bot jump
+                        if(!isDefined(self.lastJumpTime))
+                            self.lastJumpTime = 0;
+                        
+                        currentTime = getTime();
+                        iPrintlnBold(self.name + " JUMP DEBUG: currentTime=" + currentTime + ", lastJumpTime=" + self.lastJumpTime + ", difference=" + (currentTime - self.lastJumpTime));
+                        
+                        if(currentTime - self.lastJumpTime > 2000) // Jump every 2 seconds
+                        {
+                            iPrintlnBold(self.name + " performing jump at waypoint " + nextWp);
+                            self setBotStance("jump");
+                            self.lastJumpTime = currentTime;
+                            iPrintlnBold(self.name + " JUMP EXECUTED, new lastJumpTime=" + self.lastJumpTime);
+                        }
+                        else
+                        {
+                            iPrintlnBold(self.name + " JUMP COOLDOWN: waiting " + (2000 - (currentTime - self.lastJumpTime)) + "ms more");
+                        }
+                        break;
+                        
+                    case "crouch":
+                        targetStance = "crouch";
+                        break;
+                        
+                    case "prone":
+                        targetStance = "prone";
+                        break;
+                        
+                    case "stand":
+                    default:
+                        targetStance = "stand";
+                        break;
+                }
+                
+                iPrintlnBold(self.name + " DEBUG: currentStance=" + currentStance + ", targetStance=" + targetStance);
+                
+                                    // Only change stance if it's different from current stance
+                    if(currentStance != targetStance)
+                    {
+                        iPrintlnBold(self.name + " attempting to change stance from " + currentStance + " to " + targetStance);
+                        
+                        // Stop movement before changing stance
+                        self setWalkDir("none");
+                        wait 0.1;
+                        
+                        // Try to change stance
+                        self setBotStance(targetStance);
+                        wait 0.2; // Longer delay to ensure stance change takes effect
+                        
+                        // Check if stance actually changed
+                        newStance = self getStance();
+                        iPrintlnBold(self.name + " stance after change: " + newStance + " (target was: " + targetStance + ")");
+                        
+                        if(newStance == targetStance)
+                        {
+                            iPrintlnBold(self.name + " successfully changed stance to " + targetStance + " at waypoint " + nextWp);
+                        }
+                        else
+                        {
+                            iPrintlnBold(self.name + " FAILED to change stance to " + targetStance + " at waypoint " + nextWp);
+                            
+                            // Try alternative approach - force stance change
+                            iPrintlnBold(self.name + " trying alternative stance change method");
+                            self setBotStance("stand");
+                            wait 0.1;
+                            self setBotStance(targetStance);
+                            wait 0.2;
+                            
+                            finalStance = self getStance();
+                            iPrintlnBold(self.name + " final stance after alternative method: " + finalStance);
+                        }
+                    }
+                else
+                {
+                    iPrintlnBold(self.name + " DEBUG: Stance already correct, no change needed");
+                }
+            }
+            else
+            {
+                iPrintlnBold(self.name + " DEBUG: No waypoint type found for waypoint " + self.currentWaypoint);
+            }
+        }
+    }
+    else
+    {
+        // No path found, try to move to a directly connected waypoint
+        iPrintlnBold(self.name + " patrol no path found, trying direct connections");
+        if(isDefined(self.currentWaypoint) && isDefined(level.waypoints[self.currentWaypoint]) && level.waypoints[self.currentWaypoint].childCount > 0)
+        {
+            // Pick first connected waypoint
+            nextWp = level.waypoints[self.currentWaypoint].children[0];
+            iPrintlnBold(self.name + " patrol using direct connection to waypoint " + nextWp);
+            
+            waypointPos = level.waypoints[nextWp].origin;
+            self move_to_waypoint_position(waypointPos);
+            
+            // Update current waypoint if we're very close
+            dist = distancesquared(self.origin, waypointPos);
+            if(dist < 2500)
+            {
+                self.currentWaypoint = nextWp;
+                iPrintlnBold(self.name + " patrol reached waypoint " + nextWp + " via direct connection");
+                
+                // Apply waypoint type stance when actually at the waypoint (but not during initialization)
+                if(!isDefined(self.initialized) || !self.initialized)
+                {
+                    iPrintlnBold(self.name + " DEBUG: Skipping stance change during initialization (direct)");
+                    return;
+                }
+                
+                // Check the type of the waypoint we're actually at (currentWaypoint), not the next waypoint
+                if(isDefined(self.currentWaypoint) && self.currentWaypoint >= 0 && self.currentWaypoint < level.waypointCount)
+                {
+                    waypointType = level.waypoints[self.currentWaypoint].type;
+                    iPrintlnBold(self.name + " DEBUG: Current waypoint " + self.currentWaypoint + " has type: " + waypointType + " (direct)");
+                }
+                else
+                {
+                    waypointType = undefined;
+                    iPrintlnBold(self.name + " DEBUG: Invalid currentWaypoint: " + self.currentWaypoint + " (direct)");
+                }
+                
+                if(isDefined(waypointType))
+                {
+                    iPrintlnBold(self.name + " at waypoint " + self.currentWaypoint + " using type: " + waypointType + " (direct)");
+                    
+                    // Only change stance if it's different from current stance
+                    currentStance = self getStance();
+                    targetStance = "";
+                    
+                    switch(waypointType)
+                    {
+                        case "jump":
+                            targetStance = "jump";
+                            iPrintlnBold(self.name + " JUMP WAYPOINT DETECTED at waypoint " + self.currentWaypoint + " (direct)");
+                            
+                            // For jump waypoints, we need to actually make the bot jump
+                            if(!isDefined(self.lastJumpTime))
+                                self.lastJumpTime = 0;
+                            
+                            currentTime = getTime();
+                            iPrintlnBold(self.name + " JUMP DEBUG: currentTime=" + currentTime + ", lastJumpTime=" + self.lastJumpTime + ", difference=" + (currentTime - self.lastJumpTime) + " (direct)");
+                            
+                            if(currentTime - self.lastJumpTime > 2000) // Jump every 2 seconds
+                            {
+                                iPrintlnBold(self.name + " performing jump at waypoint " + self.currentWaypoint + " (direct)");
+                                self setBotStance("jump");
+                                self.lastJumpTime = currentTime;
+                                iPrintlnBold(self.name + " JUMP EXECUTED, new lastJumpTime=" + self.lastJumpTime + " (direct)");
+                            }
+                            else
+                            {
+                                iPrintlnBold(self.name + " JUMP COOLDOWN: waiting " + (2000 - (currentTime - self.lastJumpTime)) + "ms more (direct)");
+                            }
+                            break;
+                            
+                        case "crouch":
+                            targetStance = "crouch";
+                            break;
+                            
+                        case "prone":
+                            targetStance = "prone";
+                            break;
+                            
+                        case "stand":
+                        default:
+                            targetStance = "stand";
+                            break;
+                    }
+                    
+                    iPrintlnBold(self.name + " DEBUG: currentStance=" + currentStance + ", targetStance=" + targetStance + " (direct)");
+                    
+                    // Only change stance if it's different from current stance
+                    if(currentStance != targetStance)
+                    {
+                        iPrintlnBold(self.name + " attempting to change stance from " + currentStance + " to " + targetStance + " (direct)");
+                        
+                        // Stop movement before changing stance
+                        self setWalkDir("none");
+                        wait 0.1;
+                        
+                        // Try to change stance
+                        self setBotStance(targetStance);
+                        wait 0.2; // Longer delay to ensure stance change takes effect
+                        
+                        // Check if stance actually changed
+                        newStance = self getStance();
+                        iPrintlnBold(self.name + " stance after change: " + newStance + " (target was: " + targetStance + ")");
+                        
+                        if(newStance == targetStance)
+                        {
+                            iPrintlnBold(self.name + " successfully changed stance to " + targetStance + " at waypoint " + nextWp + " (direct)");
+                        }
+                        else
+                        {
+                            iPrintlnBold(self.name + " FAILED to change stance to " + targetStance + " at waypoint " + nextWp + " (direct)");
+                            
+                            // Try alternative approach - force stance change
+                            iPrintlnBold(self.name + " trying alternative stance change method (direct)");
+                            self setBotStance("stand");
+                            wait 0.1;
+                            self setBotStance(targetStance);
+                            wait 0.2;
+                            
+                            finalStance = self getStance();
+                            iPrintlnBold(self.name + " final stance after alternative method: " + finalStance + " (direct)");
+                        }
+                    }
+                    else
+                    {
+                        iPrintlnBold(self.name + " DEBUG: Stance already correct, no change needed (direct)");
+                    }
+                }
+                else
+                {
+                    iPrintlnBold(self.name + " DEBUG: No waypoint type found for waypoint " + nextWp + " (direct)");
+                }
+            }
+        }
+        else
+        {
+            // No connections at all, pick a new random waypoint
+            iPrintlnBold(self.name + " patrol no connections found, picking new random waypoint");
+            self.currentWaypoint = randomInt(level.waypoints.size);
+        }
+    }
+}
+
 // =========================
 // Zombie Bot Logic
 // =========================
@@ -137,14 +464,20 @@ zombie_bot_logic()
         self zombie_move_to_hunter(nearestHunter);
     }
     else
-    {
-        // No hunters found, just move forward in current direction
-        self setWalkDir("forward");
+    {    
+        self patrol_random_waypoints();
     }
 }
 
 getway(startWp, goalWp)
 {
+	// Validate input parameters
+	if(!isDefined(startWp) || !isDefined(goalWp) || startWp < 0 || goalWp < 0 || startWp >= level.waypointCount || goalWp >= level.waypointCount)
+	{
+		iPrintlnBold("GETWAY ERROR: Invalid parameters - startWp=" + startWp + ", goalWp=" + goalWp + ", waypointCount=" + level.waypointCount);
+		return;
+	}
+	
 	pQOpen = [];
 	pQSize = 0;
 	closedList = [];
@@ -298,6 +631,9 @@ getway(startWp, goalWp)
 			listSize++;
 		}
 	}
+	
+	iPrintlnBold("GETWAY DEBUG: No path found from " + startWp + " to " + goalWp);
+	return -1;
 
 }
 PQIsEmpty(Q, QSize)
@@ -335,68 +671,445 @@ ListExists(list, n, listSize)
 // A* Pathfinding System
 // =========================
 
-// Simple zombie movement to hunter using A* pathfinding with caching
+// Zombie movement using A* pathfinding with waypoint following
 zombie_move_to_hunter(hunter)
 {
-    if(!isDefined(hunter) || !isAlive(hunter))
-        return;
-    
-    // Cache waypoint results to prevent excessive calls
-    currentTime = getTime();
-    if(!isDefined(self.lastWaypointCheck) || currentTime - self.lastWaypointCheck > 1000) // Check every 1 second
+    iprintlnBold("zombie_move_to_hunter");
+    // Initialize current waypoint if not set
+    if(!isDefined(self.currentWaypoint))
     {
         self.currentWaypoint = self GetNearestStaticWaypoint(self.origin);
-        self.targetWaypoint = self GetNearestStaticWaypoint(hunter.origin);
-        self.lastWaypointCheck = currentTime;
+        iPrintlnBold(self.name + " initialized at waypoint " + self.currentWaypoint);
     }
     
-    if(!isDefined(self.currentWaypoint) || self.currentWaypoint == -1 || !isDefined(self.targetWaypoint) || self.targetWaypoint == -1)
+    // If no hunter, just patrol between waypoints
+    if(!isDefined(hunter) || !isAlive(hunter))
     {
-        // Fallback to direct movement
-        self move_directly_to_hunter(hunter);
+        self zombie_patrol_waypoints();
+        iprintlnBold("zombie_patrol_waypoints");
         return;
+    }
+    
+    // Check if we need to find a new target waypoint
+    currentTime = getTime();
+    if(!isDefined(self.lastWaypointCheck) || currentTime - self.lastWaypointCheck > 2000) // Check every 2 seconds
+    {
+        self.targetWaypoint = self GetNearestStaticWaypoint(hunter.origin);
+        self.lastWaypointCheck = currentTime;
+        iPrintlnBold(self.name + " new target waypoint: " + self.targetWaypoint);
+    }
+    
+    // Validate waypoints before calling getway
+    if(!isDefined(self.targetWaypoint) || self.targetWaypoint < 0 || self.targetWaypoint >= level.waypointCount)
+    {
+        iPrintlnBold(self.name + " HUNTER DEBUG: Invalid target waypoint, trying to find new one");
+        self.targetWaypoint = self GetNearestStaticWaypoint(hunter.origin);
+        if(!isDefined(self.targetWaypoint) || self.targetWaypoint < 0 || self.targetWaypoint >= level.waypointCount)
+        {
+            iPrintlnBold(self.name + " HUNTER DEBUG: Still invalid target waypoint, moving directly to hunter");
+            self move_directly_to_hunter(hunter);
+            return;
+        }
+    }
+    
+    if(!isDefined(self.currentWaypoint) || self.currentWaypoint < 0 || self.currentWaypoint >= level.waypointCount)
+    {
+        iPrintlnBold(self.name + " HUNTER DEBUG: Invalid current waypoint, finding nearest");
+        self.currentWaypoint = self GetNearestStaticWaypoint(self.origin);
+        if(!isDefined(self.currentWaypoint) || self.currentWaypoint < 0 || self.currentWaypoint >= level.waypointCount)
+        {
+            iPrintlnBold(self.name + " HUNTER DEBUG: Still invalid current waypoint, moving directly to hunter");
+            self move_directly_to_hunter(hunter);
+            return;
+        }
     }
     
     // Use A* pathfinding to get next waypoint
     nextWp = self getway(self.currentWaypoint, self.targetWaypoint);
     
-    iPrintlnBold(self.name + " DEBUG: currentWaypoint=" + self.currentWaypoint + ", targetWaypoint=" + self.targetWaypoint + ", nextWp=" + nextWp);
+    // Check if getway returned a valid result
+    if(!isDefined(nextWp) || nextWp == -1)
+    {
+        iPrintlnBold(self.name + " HUNTER DEBUG: getway returned invalid result, moving directly to hunter");
+        self move_directly_to_hunter(hunter);
+        return;
+    }
+    
+    // Debug waypoint connections
+    if(isDefined(self.currentWaypoint) && isDefined(level.waypoints[self.currentWaypoint]))
+    {
+        iPrintlnBold(self.name + " DEBUG: Current waypoint " + self.currentWaypoint + " has " + level.waypoints[self.currentWaypoint].childCount + " connections");
+        for(i = 0; i < level.waypoints[self.currentWaypoint].childCount; i++)
+        {
+            iPrintlnBold(self.name + " DEBUG: Connection " + i + " -> waypoint " + level.waypoints[self.currentWaypoint].children[i]);
+        }
+    }
     
     if(isDefined(nextWp) && nextWp != -1 && isDefined(level.waypoints[nextWp]))
     {
         // Move to the next waypoint in the A* path
         waypointPos = level.waypoints[nextWp].origin;
-        
-            iPrintlnBold(self.name + " moving to waypoint " + nextWp + " at distance: " + distancesquared(self.origin, waypointPos));
+        iPrintlnBold(self.name + " moving to waypoint " + nextWp + " at distance: " + distancesquared(self.origin, waypointPos));
         self move_to_waypoint_position(waypointPos);
         
-        // Update current waypoint if we're very close to the target waypoint
-        dist = distancesquared(self.origin, waypointPos);
-        if(dist < 900) // Very close to waypoint
+        // Update current waypoint if we're very close to the target waypoint (using horizontal distance only)
+        horizontalDist = (self.origin[0] - waypointPos[0]) * (self.origin[0] - waypointPos[0]) + (self.origin[1] - waypointPos[1]) * (self.origin[1] - waypointPos[1]);
+        iPrintlnBold(self.name + " HUNTER DEBUG: horizontal distance to waypoint " + nextWp + " = " + horizontalDist + " (threshold: 10000)");
+        
+        // Debug: Check if we're close enough to trigger waypoint detection
+        if(horizontalDist < 10000) // Horizontal distance threshold (100 units squared - more lenient for elevation differences)
         {
-            // Check if we've reached the target waypoint
-            if(nextWp == self.targetWaypoint)
+            // We're close enough to the target waypoint, so update current waypoint
+            self.currentWaypoint = nextWp;
+            iPrintlnBold(self.name + " HUNTER: reached waypoint " + nextWp + ", updating current waypoint to " + nextWp);
+    
+            
+            // Check the type of the waypoint we're actually at (currentWaypoint), not the next waypoint
+            iPrintlnBold(self.name + " HUNTER DEBUG: Checking waypoint type for currentWaypoint=" + self.currentWaypoint + ", waypointCount=" + level.waypointCount);
+            
+            if(isDefined(self.currentWaypoint) && self.currentWaypoint >= 0 && self.currentWaypoint < level.waypointCount)
             {
-                iPrintlnBold(self.name + " reached target waypoint " + nextWp + ", recalculating path to hunter");
-                // Recalculate path to hunter since we've reached the target waypoint
-                self.targetWaypoint = self GetNearestStaticWaypoint(hunter.origin);
-                self.lastWaypointCheck = 0; // Reset timer to force recalculation
+                waypointType = level.waypoints[self.currentWaypoint].type;
+                iPrintlnBold(self.name + " HUNTER DEBUG: Current waypoint " + self.currentWaypoint + " has type: " + waypointType);
             }
             else
             {
-                self.currentWaypoint = nextWp;
-                iPrintlnBold(self.name + " reached waypoint " + nextWp + ", updating current waypoint");
+                waypointType = undefined;
+                iPrintlnBold(self.name + " HUNTER DEBUG: Invalid currentWaypoint: " + self.currentWaypoint);
+            }
+            
+            if(isDefined(waypointType))
+            {
+                iPrintlnBold(self.name + " at waypoint " + self.currentWaypoint + " using type: " + waypointType);
                 
-                // Force recalculation of path to get next waypoint
-                self.lastWaypointCheck = 0; // Reset timer to force recalculation
+                // Only change stance if it's different from current stance
+                currentStance = self getStance();
+                targetStance = "";
+                
+                switch(waypointType)
+                {
+                    case "jump":
+                        targetStance = "jump";
+                        iPrintlnBold(self.name + " JUMP WAYPOINT DETECTED at waypoint " + self.currentWaypoint);
+                        
+                        // For jump waypoints, we need to actually make the bot jump
+                        if(!isDefined(self.lastJumpTime))
+                            self.lastJumpTime = 0;
+                        
+                        currentTime = getTime();
+                        iPrintlnBold(self.name + " JUMP DEBUG: currentTime=" + currentTime + ", lastJumpTime=" + self.lastJumpTime + ", difference=" + (currentTime - self.lastJumpTime));
+                        
+                        if(currentTime - self.lastJumpTime > 3000) // Jump every 3 seconds (increased cooldown)
+                        {
+                            iPrintlnBold(self.name + " performing jump at waypoint " + self.currentWaypoint);
+                            
+                            // First, turn to face the target waypoint before jumping
+                            if(isDefined(nextWp) && nextWp != -1 && isDefined(level.waypoints[nextWp]))
+                            {
+                                waypointPos = level.waypoints[nextWp].origin;
+                                iPrintlnBold(self.name + " HUNTER turning to face waypoint " + nextWp + " before jumping");
+                                
+                                // Turn to face the target waypoint
+                                self SetPlayerAngles(vectortoangles(waypointPos - self.origin));
+                                wait 0.2; // Give time for the turn to complete
+                                
+                                iPrintlnBold(self.name + " HUNTER now facing waypoint " + nextWp + ", executing jump with forward movement");
+                            }
+                            
+                            // Set forward movement and jump simultaneously
+                            self setWalkDir("forward");
+                            self setBotStance("jump");
+                            self.lastJumpTime = currentTime;
+                            iPrintlnBold(self.name + " JUMP EXECUTED with forward movement, new lastJumpTime=" + self.lastJumpTime);
+                            
+                            // Keep moving forward for a short time during the jump
+                            wait 0.8;
+                            
+                            // Continue moving to the next waypoint after jumping
+                            if(isDefined(nextWp) && nextWp != -1 && isDefined(level.waypoints[nextWp]))
+                            {
+                                waypointPos = level.waypoints[nextWp].origin;
+                                iPrintlnBold(self.name + " HUNTER continuing movement to next waypoint " + nextWp + " after jump");
+                                self move_to_waypoint_position(waypointPos);
+                            }
+                        }
+                        else
+                        {
+                            iPrintlnBold(self.name + " JUMP COOLDOWN: waiting " + (3000 - (currentTime - self.lastJumpTime)) + "ms more");
+                        }
+                        break;
+                        
+                    case "crouch":
+                        targetStance = "crouch";
+                        break;
+                        
+                    case "prone":
+                        targetStance = "prone";
+                        break;
+                        
+                    case "stand":
+                    default:
+                        targetStance = "stand";
+                        break;
+                }
+                
+                iPrintlnBold(self.name + " DEBUG: currentStance=" + currentStance + ", targetStance=" + targetStance);
+                
+                // Only change stance if it's different from current stance
+                if(currentStance != targetStance)
+                {
+                    iPrintlnBold(self.name + " attempting to change stance from " + currentStance + " to " + targetStance);
+                    
+                    // Stop movement before changing stance
+                    self setWalkDir("none");
+                    wait 0.1;
+                    
+                    // Try to change stance
+                    self setBotStance(targetStance);
+                    wait 0.2; // Longer delay to ensure stance change takes effect
+                    
+                    // Check if stance actually changed
+                    newStance = self getStance();
+                    iPrintlnBold(self.name + " stance after change: " + newStance + " (target was: " + targetStance + ")");
+                    
+                    if(newStance == targetStance)
+                    {
+                        iPrintlnBold(self.name + " successfully changed stance to " + targetStance + " at waypoint " + self.currentWaypoint);
+                    }
+                    else
+                    {
+                        iPrintlnBold(self.name + " FAILED to change stance to " + targetStance + " at waypoint " + self.currentWaypoint);
+                        
+                        // Try alternative approach - force stance change
+                        iPrintlnBold(self.name + " trying alternative stance change method");
+                        self setBotStance("stand");
+                        wait 0.1;
+                        self setBotStance(targetStance);
+                        wait 0.2;
+                        
+                        finalStance = self getStance();
+                        iPrintlnBold(self.name + " final stance after alternative method: " + finalStance);
+                    }
+                }
+                else
+                {
+                    iPrintlnBold(self.name + " DEBUG: Stance already correct, no change needed");
+                }
+            }
+            else
+            {
+                iPrintlnBold(self.name + " DEBUG: No waypoint type found for waypoint " + nextWp);
             }
         }
     }
     else
     {
         // No path found, move directly towards hunter
+        iPrintlnBold(self.name + " no path found, moving directly to hunter");
+        iPrintlnBold(self.name + " DEBUG: nextWp=" + nextWp + ", isDefined=" + isDefined(nextWp) + ", waypointExists=" + isDefined(level.waypoints[nextWp]));
         self move_directly_to_hunter(hunter);
     }
+}
+
+// Zombie patrol between waypoints when no hunter is present
+zombie_patrol_waypoints()
+{
+    if(!isDefined(self.currentWaypoint) || self.currentWaypoint == -1)
+    {
+        self.currentWaypoint = self GetNearestStaticWaypoint(self.origin);
+        iPrintlnBold(self.name + " patrol initialized at waypoint " + self.currentWaypoint);
+        return;
+    }
+    
+    // Pick a random target waypoint for patrol
+    if(!isDefined(self.patrolTargetWaypoint) || self.patrolTargetWaypoint == -1)
+    {
+        self.patrolTargetWaypoint = randomInt(level.waypointCount);
+        iPrintlnBold(self.name + " patrol target set to waypoint " + self.patrolTargetWaypoint);
+    }
+    
+    // If we're at the patrol target, pick a new one
+    if(self.currentWaypoint == self.patrolTargetWaypoint)
+    {
+        self.patrolTargetWaypoint = randomInt(level.waypointCount);
+        iPrintlnBold(self.name + " reached patrol target, new target: " + self.patrolTargetWaypoint);
+    }
+    
+    // Use A* pathfinding to get next waypoint
+    nextWp = self getway(self.currentWaypoint, self.patrolTargetWaypoint);
+    
+    if(isDefined(nextWp) && nextWp != -1 && isDefined(level.waypoints[nextWp]))
+    {
+        // Move to the next waypoint in the A* path
+        waypointPos = level.waypoints[nextWp].origin;
+        self move_to_waypoint_position(waypointPos);
+        
+        // Update current waypoint if we're very close to the target waypoint
+        dist = distancesquared(self.origin, waypointPos);
+        if(dist < 900) // Very close to waypoint
+        {
+            self.currentWaypoint = nextWp;
+            iPrintlnBold(self.name + " patrol reached waypoint " + nextWp + ", updating current waypoint");
+            
+            // Apply waypoint type stance when actually at the waypoint (but not during initialization)
+            if(!isDefined(self.initialized) || !self.initialized)
+            {
+                iPrintlnBold(self.name + " PATROL DEBUG: Skipping stance change during initialization");
+                return;
+            }
+            
+            // Check the type of the waypoint we're actually at (currentWaypoint), not the next waypoint
+            iPrintlnBold(self.name + " PATROL DEBUG: Checking waypoint type for currentWaypoint=" + self.currentWaypoint + ", waypointCount=" + level.waypointCount);
+            
+            if(isDefined(self.currentWaypoint) && self.currentWaypoint >= 0 && self.currentWaypoint < level.waypointCount)
+            {
+                waypointType = level.waypoints[self.currentWaypoint].type;
+                iPrintlnBold(self.name + " PATROL DEBUG: Current waypoint " + self.currentWaypoint + " has type: " + waypointType);
+            }
+            else
+            {
+                waypointType = undefined;
+                iPrintlnBold(self.name + " PATROL DEBUG: Invalid currentWaypoint: " + self.currentWaypoint);
+            }
+            
+            if(isDefined(waypointType))
+            {
+                iPrintlnBold(self.name + " PATROL at waypoint " + self.currentWaypoint + " using type: " + waypointType);
+                
+                // Only change stance if it's different from current stance
+                currentStance = self getStance();
+                targetStance = "";
+                
+                switch(waypointType)
+                {
+                    case "jump":
+                        targetStance = "jump";
+                        iPrintlnBold(self.name + " PATROL JUMP WAYPOINT DETECTED at waypoint " + self.currentWaypoint);
+                        
+                        // For jump waypoints, we need to actually make the bot jump
+                        if(!isDefined(self.lastJumpTime))
+                            self.lastJumpTime = 0;
+                        
+                        currentTime = getTime();
+                        iPrintlnBold(self.name + " PATROL JUMP DEBUG: currentTime=" + currentTime + ", lastJumpTime=" + self.lastJumpTime + ", difference=" + (currentTime - self.lastJumpTime));
+                        
+                        if(currentTime - self.lastJumpTime > 3000) // Jump every 3 seconds (increased cooldown)
+                        {
+                            iPrintlnBold(self.name + " PATROL performing jump at waypoint " + self.currentWaypoint);
+                            
+                            // First, turn to face the target waypoint before jumping
+                            if(isDefined(nextWp) && nextWp != -1 && isDefined(level.waypoints[nextWp]))
+                            {
+                                waypointPos = level.waypoints[nextWp].origin;
+                                iPrintlnBold(self.name + " PATROL turning to face waypoint " + nextWp + " before jumping");
+                                
+                                // Turn to face the target waypoint
+                                self SetPlayerAngles(vectortoangles(waypointPos - self.origin));
+                                wait 0.2; // Give time for the turn to complete
+                                
+                                iPrintlnBold(self.name + " PATROL now facing waypoint " + nextWp + ", executing jump with forward movement");
+                            }
+                            
+                            // Set forward movement and jump simultaneously
+                            self setWalkDir("forward");
+                            self setBotStance("jump");
+                            self.lastJumpTime = currentTime;
+                            iPrintlnBold(self.name + " PATROL JUMP EXECUTED with forward movement, new lastJumpTime=" + self.lastJumpTime);
+                            
+                            // Keep moving forward for a short time during the jump
+                            wait 0.8;
+                            
+                            // Continue moving to the next waypoint after jumping
+                            if(isDefined(nextWp) && nextWp != -1 && isDefined(level.waypoints[nextWp]))
+                            {
+                                waypointPos = level.waypoints[nextWp].origin;
+                                iPrintlnBold(self.name + " PATROL continuing movement to next waypoint " + nextWp + " after jump");
+                                self move_to_waypoint_position(waypointPos);
+                            }
+                        }
+                        else
+                        {
+                            iPrintlnBold(self.name + " PATROL JUMP COOLDOWN: waiting " + (3000 - (currentTime - self.lastJumpTime)) + "ms more");
+                        }
+                        break;
+                        
+                    case "crouch":
+                        targetStance = "crouch";
+                        break;
+                        
+                    case "prone":
+                        targetStance = "prone";
+                        break;
+                        
+                    case "stand":
+                    default:
+                        targetStance = "stand";
+                        break;
+                }
+                
+                iPrintlnBold(self.name + " PATROL DEBUG: currentStance=" + currentStance + ", targetStance=" + targetStance);
+                
+                // Only change stance if it's different from current stance
+                if(currentStance != targetStance)
+                {
+                    iPrintlnBold(self.name + " PATROL attempting to change stance from " + currentStance + " to " + targetStance);
+                    
+                    // Stop movement before changing stance
+                    self setWalkDir("none");
+                    wait 0.1;
+                    
+                    // Try to change stance
+                    self setBotStance(targetStance);
+                    iPrintlnBold(self.name + " PATROL stance change attempted to " + targetStance);
+                }
+            }
+        }
+    }
+    else
+    {
+        // No path found, pick a new patrol target
+        iPrintlnBold(self.name + " patrol no path found, picking new target");
+        self.patrolTargetWaypoint = randomInt(level.waypointCount);
+    }
+}
+
+// Get next connected waypoint using simple waypoint connections
+get_next_connected_waypoint(currentWp, targetWp)
+{
+    if(!isDefined(currentWp) || currentWp == -1 || !isDefined(targetWp) || targetWp == -1)
+        return -1;
+    
+    if(!isDefined(level.waypoints) || !isDefined(level.waypoints[currentWp]))
+        return -1;
+    
+    // If current waypoint has no connections, return -1
+    if(!isDefined(level.waypoints[currentWp].childCount) || level.waypoints[currentWp].childCount == 0)
+    {
+        iPrintlnBold("Waypoint " + currentWp + " has no connections");
+        return -1;
+    }
+    
+    // Find the connected waypoint closest to the target
+    bestWp = -1;
+    bestDist = 999999;
+    
+    for(i = 0; i < level.waypoints[currentWp].childCount; i++)
+    {
+        childWp = level.waypoints[currentWp].children[i];
+        if(isDefined(childWp) && isDefined(level.waypoints[childWp]))
+        {
+            // Calculate distance from this child waypoint to target
+            dist = distancesquared(level.waypoints[childWp].origin, level.waypoints[targetWp].origin);
+            if(dist < bestDist)
+            {
+                bestDist = dist;
+                bestWp = childWp;
+            }
+        }
+    }
+    
+    iPrintlnBold("From waypoint " + currentWp + " to target " + targetWp + ", best connected waypoint: " + bestWp + " (distance: " + bestDist + ")");
+    return bestWp;
 }
 
 // Get nearest waypoint to current position
@@ -455,6 +1168,114 @@ move_directly_to_hunter(hunter)
     if(!isDefined(hunter) || !isAlive(hunter))
         return;
     
+    // Check if we're at a waypoint and apply stance
+    if(isDefined(self.currentWaypoint) && self.currentWaypoint != -1 && isDefined(level.waypoints[self.currentWaypoint]))
+    {
+        waypointPos = level.waypoints[self.currentWaypoint].origin;
+        dist = distancesquared(self.origin, waypointPos);
+        
+        if(dist < 2500) // Close to waypoint
+        {
+            waypointType = self get_waypoint_type_at_position(waypointPos);
+            
+            if(isDefined(waypointType))
+            {
+                iPrintlnBold(self.name + " DIRECT HUNTER: at waypoint " + self.currentWaypoint + " using type: " + waypointType);
+                
+                // Only change stance if it's different from current stance
+                currentStance = self getStance();
+                targetStance = "";
+                
+                switch(waypointType)
+                {
+                    case "jump":
+                        targetStance = "jump";
+                        iPrintlnBold(self.name + " DIRECT HUNTER: JUMP WAYPOINT DETECTED at waypoint " + self.currentWaypoint);
+                        
+                        // For jump waypoints, we need to actually make the bot jump
+                        if(!isDefined(self.lastJumpTime))
+                            self.lastJumpTime = 0;
+                        
+                        currentTime = getTime();
+                        iPrintlnBold(self.name + " DIRECT HUNTER: JUMP DEBUG: currentTime=" + currentTime + ", lastJumpTime=" + self.lastJumpTime + ", difference=" + (currentTime - self.lastJumpTime));
+                        
+                        if(currentTime - self.lastJumpTime > 2000) // Jump every 2 seconds
+                        {
+                            iPrintlnBold(self.name + " DIRECT HUNTER: performing jump at waypoint " + self.currentWaypoint);
+                            self setBotStance("jump");
+                            self.lastJumpTime = currentTime;
+                            iPrintlnBold(self.name + " DIRECT HUNTER: JUMP EXECUTED, new lastJumpTime=" + self.lastJumpTime);
+                        }
+                        else
+                        {
+                            iPrintlnBold(self.name + " DIRECT HUNTER: JUMP COOLDOWN: waiting " + (2000 - (currentTime - self.lastJumpTime)) + "ms more");
+                        }
+                        break;
+                        
+                    case "crouch":
+                        targetStance = "crouch";
+                        break;
+                        
+                    case "prone":
+                        targetStance = "prone";
+                        break;
+                        
+                    case "stand":
+                    default:
+                        targetStance = "stand";
+                        break;
+                }
+                
+                iPrintlnBold(self.name + " DIRECT HUNTER: currentStance=" + currentStance + ", targetStance=" + targetStance);
+                
+                // Only change stance if it's different from current stance
+                if(currentStance != targetStance)
+                {
+                    iPrintlnBold(self.name + " DIRECT HUNTER: attempting to change stance from " + currentStance + " to " + targetStance);
+                    
+                    // Stop movement before changing stance
+                    self setWalkDir("none");
+                    wait 0.1;
+                    
+                    // Try to change stance
+                    self setBotStance(targetStance);
+                    wait 0.2; // Longer delay to ensure stance change takes effect
+                    
+                    // Check if stance actually changed
+                    newStance = self getStance();
+                    iPrintlnBold(self.name + " DIRECT HUNTER: stance after change: " + newStance + " (target was: " + targetStance + ")");
+                    
+                    if(newStance == targetStance)
+                    {
+                        iPrintlnBold(self.name + " DIRECT HUNTER: successfully changed stance to " + targetStance + " at waypoint " + self.currentWaypoint);
+                    }
+                    else
+                    {
+                        iPrintlnBold(self.name + " DIRECT HUNTER: FAILED to change stance to " + targetStance + " at waypoint " + self.currentWaypoint);
+                        
+                        // Try alternative approach - force stance change
+                        iPrintlnBold(self.name + " DIRECT HUNTER: trying alternative stance change method");
+                        self setBotStance("stand");
+                        wait 0.1;
+                        self setBotStance(targetStance);
+                        wait 0.2;
+                        
+                        finalStance = self getStance();
+                        iPrintlnBold(self.name + " DIRECT HUNTER: final stance after alternative method: " + finalStance);
+                    }
+                }
+                else
+                {
+                    iPrintlnBold(self.name + " DIRECT HUNTER: Stance already correct, no change needed");
+                }
+            }
+            else
+            {
+                iPrintlnBold(self.name + " DIRECT HUNTER: No waypoint type found for waypoint " + self.currentWaypoint);
+            }
+        }
+    }
+    
     // Face the hunter
     targetVector = hunter.origin - self.origin;
     if(isDefined(targetVector))
@@ -506,51 +1327,7 @@ move_to_waypoint_position(waypointPos)
         }
     }
     
-    // Only apply waypoint type when very close to the waypoint (within 50 units)
-    if(dist < 2500) // 50 units squared
-    {
-        waypointType = self get_waypoint_type_at_position(waypointPos);
-        if(isDefined(waypointType))
-        {
-            // Debug output for waypoint type (less frequent)
-            if( !isDefined(self.lastTypeDebug) || getTime() - self.lastTypeDebug > 2000) // Only show every 2 seconds
-            {
-                iPrintlnBold(self.name + " at waypoint using type: " + waypointType + " at distance: " + dist);
-                self.lastTypeDebug = getTime();
-            }
-            
-            // Only change stance if it's different from current stance
-            currentStance = self getStance();
-            targetStance = "";
-            
-            switch(waypointType)
-            {
-                case "jump":
-                    targetStance = "jump";
-                    break;
-                    
-                case "crouch":
-                    targetStance = "crouch";
-                    break;
-                    
-                case "prone":
-                    targetStance = "prone";
-                    break;
-                    
-                case "stand":
-                default:
-                    targetStance = "stand";
-                    break;
-            }
-            
-            // Only change stance if it's different from current stance
-            if(currentStance != targetStance)
-            {
-                self setBotStance(targetStance);
-                wait 0.1; // Small delay to ensure stance change takes effect
-            }
-        }
-    }
+
     
     // Always move forward regardless of waypoint type
     self setWalkDir("forward");
@@ -740,7 +1517,6 @@ hunter_bot_logic()
                        if(campDist < 10000) // 100 units squared (increased from 50)
                        {
                            waypointType = self get_waypoint_type_at_position(level.waypoints[self.campWaypoint].origin);
-                           iPrintlnBold(self.name + " DEBUG: campDist=" + campDist + ", waypointType=" + waypointType + ", campWaypoint=" + self.campWaypoint);
                            if(isDefined(waypointType))
                            {
                               
@@ -1073,51 +1849,8 @@ move_to_waypoint(waypointIndex)
     
          if (dist < 2500) // Close to waypoint, pick new one
      {
-         iPrintlnBold(self.name + " DEBUG: Close to waypoint - dist=" + dist + ", waypointIndex=" + waypointIndex);
          if (self.pers["team"] == "allies")
          {
-             // Apply waypoint type before camping
-             if(dist < 10000) // 100 units squared (increased from 50)
-             {
-                 waypointType = self get_waypoint_type_at_position(targetOrigin);
-                 iPrintlnBold(self.name + " DEBUG: dist=" + dist + ", waypointType=" + waypointType + ", waypointIndex=" + waypointIndex);
-                 if(isDefined(waypointType))
-                 {
-                     iPrintlnBold(self.name + " at camp waypoint using type: " + waypointType + " at distance: " + dist);
-                     
-                     // Only change stance if it's different from current stance
-                     currentStance = self getStance();
-                     targetStance = "";
-                     
-                     switch(waypointType)
-                     {
-                         case "jump":
-                             targetStance = "jump";
-                             break;
-                             
-                         case "crouch":
-                             targetStance = "crouch";
-                             break;
-                             
-                         case "prone":
-                             targetStance = "prone";
-                             break;
-                             
-                         case "stand":
-                         default:
-                             targetStance = "stand";
-                             break;
-                     }
-                     
-                     // Only change stance if it's different from current stance
-                     if(currentStance != targetStance)
-                     {
-                         self setBotStance(targetStance);
-                         wait 0.1; // Small delay to ensure stance change takes effect
-                     }
-                 }
-             }
-             
              // Hunters should stay at their camp spot, don't pick new one
              self setWalkDir("none"); // Stop moving and camp
              self.waypointStartTime = getTime(); // Reset timer to prevent timeout
