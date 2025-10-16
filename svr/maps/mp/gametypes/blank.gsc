@@ -451,7 +451,7 @@ Callback_PlayerDisconnect()
 {
 	players = codam\_mm_mmm::getOnlinePlayers();
 	for(i = 0; i < players.size; i++) {
-        xtnded = players[i] getUserInfoKey("xtndedbuild");
+        xtnded = players[i] getUserInfo("xtndedbuild");
         if(!isDefined(xtnded) || xtnded == "")
             xtnded = "Stock 1.1";
         else

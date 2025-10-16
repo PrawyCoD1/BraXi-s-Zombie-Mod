@@ -706,7 +706,7 @@ cmd_endmap(args)
 
     message("^5INFO: ^7Forcing the map to end.");
     wait 1;
-    level thread maps\mp\gam,etypes\_zombie::endMap( "zombies" );
+    level thread maps\mp\gametypes\_zombie::endMap( "zombies" );
 }
 
 cmd_who(args)

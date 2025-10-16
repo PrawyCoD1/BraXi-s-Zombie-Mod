@@ -2739,8 +2739,6 @@ spawnUp()
 
 doBloodScreen()
 {
-	if(self.isbot)
-		return;
 
 	if(self.bloodyed)
 		return;
@@ -3194,8 +3192,7 @@ addBotsOnStart()
 			if(availableNames.size > 0)
 			{
 				randomNameIndex = randomInt(availableNames.size);
-				level.bot[i] renamebot(availableNames[randomNameIndex]);				// Start ping simulation thread for realistic ping fluctuations
-				//level.bot[i] thread simulateLivePing();
+				level.bot[i] renamebot(availableNames[randomNameIndex]);
 				
 				// Remove the used name from available names
 				availableNames[randomNameIndex] = availableNames[availableNames.size - 1];
@@ -4572,39 +4569,3 @@ drawLine( start, end, color, time )
 		wait .05;
 	}
 }
-/*
-// Simulate realistic ping fluctuations for bots
-simulateLivePing()
-{
-	// Wait a bit before starting ping simulation
-	wait randomFloat(1, 3);
-	
-	while(isAlive(self) && self.sessionstate == "playing")
-	{
-		// Generate realistic ping values (most players have 20-80 ping, some have 100+)
-		pingChance = randomInt(100);
-		
-		if(pingChance < 60)
-		{
-			// 60% chance for good ping (20-60)
-			newPing = randomInt(41) + 20;
-		}
-		else if(pingChance < 85)
-		{
-			// 25% chance for medium ping (60-100)
-			newPing = randomInt(41) + 60;
-		}
-		else
-		{
-			// 15% chance for high ping (100-150)
-			newPing = randomInt(51) + 100;
-		}
-		
-		// Set the new ping
-		self setPing(newPing);
-		
-		// Wait between 2-8 seconds before next ping change (realistic fluctuation timing)
-		wait randomFloat(2, 8);
-	}
-}
-*/
