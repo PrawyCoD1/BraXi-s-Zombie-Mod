@@ -2751,11 +2751,11 @@ doBloodScreen()
 		{
 			if (isDefined(self.hud_BloodScreen[i]))
 			{
-				// Check if the HUD element is still valid before destroying
-                if (isDefined(self.hud_BloodScreen[b].x))
-                {
-                    self.hud_BloodScreen[b] destroy();
-                }
+				// Check if the HUD element is still valid before deleting
+				if (isDefined(self.hud_BloodScreen[i].x))
+				{
+					self.hud_BloodScreen[i] delete();
+				}
 			}
 		}
 	}
@@ -2806,10 +2806,10 @@ bloodscreentimer()
 			if (isDefined(self.hud_BloodScreen[b]))
 			{
 				// Check if the HUD element is still valid before destroying
-                if (isDefined(self.hud_BloodScreen[b].x))
-                {
-                    self.hud_BloodScreen[b] destroy();
-                }
+				if (isDefined(self.hud_BloodScreen[b].x))
+				{
+					self.hud_BloodScreen[b] destroy();
+				}
 			}
 		}
 	}

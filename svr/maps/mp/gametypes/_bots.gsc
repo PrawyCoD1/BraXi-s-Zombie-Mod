@@ -15,10 +15,15 @@ init_bot_ai()
      self.stuckTime = getTime();
      self.waypointStartTime = getTime();
      self.inCombat = false;
+     
+    // Enhanced stuck detection
+    self.positionHistory = [];
+    self.positionHistory[0] = self.origin;
+    self.lastStuckCheck = getTime();
      // Initialize camp waypoint for hunters immediately
      if (self.pers["team"] == "allies")
      {
-         self.campWaypoint = self find_random_camp_waypoint();
+         self.campWaypoint = 105; //self find_random_camp_waypoint();
      }
      
      self thread bot_think_loop();
@@ -385,25 +390,85 @@ patrol_random_waypoints()
 
 zombie_bot_logic()
 {
-    // Check if zombie is stuck
-    currentDist = distancesquared(self.origin, self.lastPosition);
-    if (currentDist < 1000) // Barely moved
+    // Enhanced stuck detection
+    currentTime = getTime();
+    if(currentTime - self.lastStuckCheck > 500) // Check every 0.5 seconds
     {
-        if (getTime() - self.stuckTime > 1500) // Stuck for 1.5 seconds
+        // Add current position to history
+        if(!isDefined(self.positionHistory))
+            self.positionHistory = [];
+            
+        self.positionHistory[self.positionHistory.size] = self.origin;
+        
+        // Keep only last 10 positions (5 seconds of history)
+        if(self.positionHistory.size > 10)
+        {
+            // Remove the first element by shifting all elements left
+            for(i = 0; i < self.positionHistory.size - 1; i++)
+            {
+                self.positionHistory[i] = self.positionHistory[i + 1];
+            }
+            // Remove the last element
+            self.positionHistory[self.positionHistory.size - 1] = undefined;
+        }
+        
+        // Check if bot is stuck using multiple criteria
+        isStuck = false;
+        
+        if(self.positionHistory.size >= 5) // Need at least 5 positions to analyze
+        {
+            // Check 1: Total distance moved in last 5 positions
+            totalDistance = 0;
+            for(i = 1; i < self.positionHistory.size; i++)
+            {
+                totalDistance += distancesquared(self.positionHistory[i], self.positionHistory[i-1]);
+            }
+            
+            // Check 2: Distance from start to end position
+            startToEndDist = distancesquared(self.positionHistory[0], self.positionHistory[self.positionHistory.size-1]);
+            
+            // Check 3: Check for oscillating movement (back and forth)
+            oscillating = false;
+            if(self.positionHistory.size >= 6)
+            {
+                // Check if bot is moving back and forth between similar positions
+                for(i = 2; i < self.positionHistory.size - 2; i++)
+                {
+                    dist1 = distancesquared(self.positionHistory[i], self.positionHistory[i-2]);
+                    dist2 = distancesquared(self.positionHistory[i], self.positionHistory[i+2]);
+                    if(dist1 < 2500 && dist2 < 2500) // Bot is near positions it was at 1 second ago
+                    {
+                        oscillating = true;
+                        break;
+                    }
+                }
+            }
+            
+            // Bot is stuck if:
+            // 1. Total distance moved is very small, OR
+            // 2. Start to end distance is very small, OR  
+            // 3. Bot is oscillating between similar positions
+            if(totalDistance < 5000 || startToEndDist < 2500 || oscillating)
+            {
+                isStuck = true;
+                iPrintlnBold("Bot " + self.name + " STUCK DETECTED - totalDist: " + totalDistance + ", startToEnd: " + startToEndDist + ", oscillating: " + oscillating);
+            }
+        }
+        
+        if(isStuck)
         {
             // Force stop current movement and reset everything
             self setWalkDir("none");
             wait 0.2;
             
-            // Pick a new nearest waypoint to get unstuck (with caching)
-            currentTime = getTime();
-            if(!isDefined(self.lastWaypointCheck) || currentTime - self.lastWaypointCheck > 500) // Check every 0.5 seconds when stuck
-            {
-                self.currentWaypoint = self GetNearestStaticWaypoint(self.origin);
-                self.lastWaypointCheck = currentTime;
-            }
+            // Pick a new nearest waypoint to get unstuck
+            self.currentWaypoint = self GetNearestStaticWaypoint(self.origin);
             self.stuckTime = getTime();
             self.waypointStartTime = getTime();
+            
+            // Clear position history
+            self.positionHistory = [];
+            self.positionHistory[0] = self.origin;
             
             // Move towards the new waypoint
             if(isDefined(self.currentWaypoint) && self.currentWaypoint != -1 && isDefined(level.waypoints[self.currentWaypoint]))
@@ -417,16 +482,14 @@ zombie_bot_logic()
                 }
                 self setWalkDir("forward");
             }
-            
+             
             iPrintlnBold("Bot " + self.name + " was stuck, moving to new waypoint " + self.currentWaypoint);
-            
+             
+            self.lastStuckCheck = currentTime;
             return;
         }
-    }
-    else
-    {
-        self.lastPosition = self.origin;
-        self.stuckTime = getTime();
+        
+        self.lastStuckCheck = currentTime;
     }
     
     // Find nearest hunter (any hunter, not just visible ones)
@@ -440,31 +503,31 @@ zombie_bot_logic()
         {
             // Face the hunter and melee attack
             targetVector = nearestHunter getRealEye() - self getRealEye();
-            if (isDefined(targetVector))
-            {
-                targetAngles = vectorToAngles(targetVector);
-                self setPlayerAngles(targetAngles);
-            }
-            
-            // Stop moving and melee attack
-            self setWalkDir("none");
-            
-            // Melee attack
+                 if (isDefined(targetVector))
+                 {
+                     targetAngles = vectorToAngles(targetVector);
+                     self setPlayerAngles(targetAngles);
+                 }
+                 
+                 // Stop moving and melee attack
+                 self setWalkDir("none");
+                 
+                 // Melee attack
             if (!isDefined(self.lastMeleeTime) || getTime() - self.lastMeleeTime > 1000) // 1 second cooldown
             {
                 self.lastMeleeTime = getTime();
-                self meleeWeapon(true);
-                wait 0.1;
-                self meleeWeapon(false);
-            }
+                     self meleeWeapon(true);
+                     wait 0.1;
+                     self meleeWeapon(false);
+                 }
             return;
         }
         
         // Move directly towards hunter using A* pathfinding
         self zombie_move_to_hunter(nearestHunter);
-    }
-    else
-    {    
+             }
+             else
+             {
         self patrol_random_waypoints();
     }
 }
@@ -517,9 +580,9 @@ getway(startWp, goalWp)
 				pQOpen[i] = pQOpen[i+1];
 			}
 			pQSize--;
-		}
-		else
-		{
+                 }
+                 else
+                 {
 			return;
 		}  
 
@@ -562,9 +625,9 @@ getway(startWp, goalWp)
 				{
 					continue;
 				}
-			}
-			else
-			{
+         }
+         else
+         {
 				if(ListExists(closedList, level.waypoints[n.wpIdx].children[i], listSize))
 				{
 					nc = spawnstruct();
@@ -1293,44 +1356,114 @@ move_to_waypoint_position(waypointPos)
 {
     if(!isDefined(waypointPos))
         return;
-    
-    // Check if we're already close to the waypoint
-    dist = distancesquared(self.origin, waypointPos);
-    if(dist < 900) // Very close to waypoint, recalculate path
-    {
-        // Clear current path to force recalculation
-        self.currentPathTarget = undefined;
-        return;
-    }
-    
-    // Face the waypoint
-    targetVector = waypointPos - self.origin;
-    if(isDefined(targetVector))
-    {
-        targetAngles = vectorToAngles(targetVector);
-        
-        // Only change direction if the difference is significant (prevents rapid direction changes)
-        currentAngles = self getPlayerAngles();
-        angleDiff = targetAngles[1] - currentAngles[1];
-        
-        // Calculate absolute value manually
-        if(angleDiff < 0)
-            angleDiff = 0 - angleDiff;
-        
-        // Normalize angle difference
-        if(angleDiff > 180)
-            angleDiff = 360 - angleDiff;
-            
-        if(angleDiff > 10) // Only change direction if difference is more than 10 degrees
-        {
-            self setPlayerAngles(targetAngles);
-        }
-    }
-    
+    iprintlnbold(waypointPos);
+    self thread DoRotateOrg(waypointPos, randomFloat(2-(10*0.2))+0.1); 
 
-    
     // Always move forward regardless of waypoint type
     self setWalkDir("forward");
+}
+
+angleSubtract(a1, a2)
+{
+	a = a1-a2;
+	if (abs(a) > 180)
+	{
+		if (a < -180)
+			a += 360;
+		else if (a > 180)
+			a -= 360;
+	}
+	return a;
+}
+
+abs(var)
+{
+	if (var < 0)
+		var = var * (-1);
+	return var;	
+}
+
+anglesAdd(a1, a2)
+{
+	v = [];
+	v[0] = a1[0] + a2[0];
+	v[1] = a1[1] + a2[1];
+	v[2] = a1[2] + a2[2];
+	
+	for (i=0; i<3; i++)
+	{
+		while (v[i] > 360)
+			v[i] -= 360;
+		while (v[i] < -360)
+			v[i] += 360;
+	}
+	return (v[0], v[1], v[2]);
+}
+
+DoRotateOrg(target, roundsec)
+{
+	self endon("stoprotate");
+	self endon("killed_player");
+	
+	if (isDefined(self.skiprotate))
+		return;
+		
+	newangles = vectorToAngles(vectorNormalize(target - self.origin));
+	self thread DoRotateAng(newangles, roundsec);
+}
+
+DoRotateAng(newangles, roundsec)
+{
+	self endon("stoprotate");
+	self endon("killed_player");
+	
+	if (isDefined(self.skiprotate))
+		return;
+	
+	iter = 1; 
+	
+	iterinc = 360/iter;
+	iterwait = roundsec/iter;
+	
+	angles = vectorToAngles(anglestoforward(self getplayerangles()));
+	newangles = vectorToAngles(anglestoforward(newangles));
+	
+	yaw = angleSubtract(newangles[1], angles[1]);
+	pitch = angleSubtract(newangles[0], angles[0]);
+	
+	if (yaw < 0)
+		dyaw = iterinc * (-1);
+	else
+		dyaw = iterinc;
+	
+	if (pitch < 0)
+		dpitch = iterinc * (-1);
+	else
+		dpitch = iterinc;
+		
+	iyaw = abs(yaw) / iterinc;
+	ipitch = abs(pitch) / iterinc;
+	
+	while (1)
+	{
+		if (iyaw > 1)
+			angles = anglesAdd(angles, (0, dyaw, 0));
+		if (ipitch > 1)
+			angles = anglesAdd(angles, (dpitch, 0, 0));
+			
+		self setplayerangles(vectorToAngles(angles));
+	
+		if (iyaw > 1)
+			iyaw -= 1;
+		if (ipitch > 1)
+			ipitch -= 1;
+			
+		if (iyaw <= 1 && ipitch <= 1)
+			break;
+		wait iterwait;
+	}
+	self setplayerangles(newangles);
+	self notify("endrotate");
 }
 
 // Zombie waypoint patrol (when no hunters visible) - REMOVED, simplified logic
@@ -1389,15 +1522,15 @@ hunter_bot_logic()
              // Set combat mode
              self.inCombat = true;
              
-                                     // Face the zombie more precisely - aim at their actual position
+             // Face the zombie more precisely - aim at their actual position
             targetVector = nearestZombie getRealEye() - self getRealEye();
-            if (isDefined(targetVector))
-            {
-                targetAngles = vectorToAngles(targetVector);
-                // Set both pitch and yaw for better aiming
-                self setPlayerAngles(targetAngles);
+             if (isDefined(targetVector))
+             {
+                 targetAngles = vectorToAngles(targetVector);
+                 // Set both pitch and yaw for better aiming
+                 self setPlayerAngles(targetAngles);
                 iPrintlnBold("Hunter " + self.name + " aiming at zombie: " + targetAngles + " stance: " + nearestZombie getStance());
-            }
+             }
              
                            // Tactical movement: move away from zombie while shooting
                              if (dist < 6400) // Very close - retreat backwards (80 units squared)
@@ -1494,9 +1627,9 @@ hunter_bot_logic()
                 // Keep aiming even when not shooting
                 self setAim(1);
             }
-        }
-                 else // Too far, move to camp spot
-         {
+            }
+                else // Too far, move to camp spot
+            {
              // Exit combat mode
              self.inCombat = false;
              
@@ -1505,10 +1638,11 @@ hunter_bot_logic()
              {
                  self.campWaypoint = self find_random_camp_waypoint();
              }
-             
+             iprintlnBold("BEFORE IF");
                            // Check if we're already close to camp spot
               if (isDefined(self.campWaypoint) && isDefined(level.waypoints) && self.campWaypoint >= 0 && self.campWaypoint < level.waypoints.size && isDefined(level.waypoints[self.campWaypoint]))
               {
+                iprintlnBold("AFTER IF");
                   campDist = distancesquared(self.origin, level.waypoints[self.campWaypoint].origin);
                   iPrintlnBold(self.name + " DEBUG: Checking camp spot - campDist=" + campDist + ", campWaypoint=" + self.campWaypoint);
                   if (campDist < 10000) // Already close to camp spot
@@ -1517,6 +1651,7 @@ hunter_bot_logic()
                        if(campDist < 10000) // 100 units squared (increased from 50)
                        {
                            waypointType = self get_waypoint_type_at_position(level.waypoints[self.campWaypoint].origin);
+                           iPrintlnBold(self.name + " DEBUG: campWaypoint=" + self.campWaypoint + ", waypointType=" + waypointType + ", campDist=" + campDist);
                            if(isDefined(waypointType))
                            {
                               
@@ -1528,6 +1663,23 @@ hunter_bot_logic()
                               {
                                   case "jump":
                                       targetStance = "jump";
+                                      iPrintlnBold(self.name + " HUNTER JUMP WAYPOINT DETECTED at waypoint " + self.campWaypoint);
+                                      
+                                      // For jump waypoints, we need to actually make the bot jump
+                                      if(!isDefined(self.lastJumpTime))
+                                          self.lastJumpTime = 0;
+                                      
+                                      currentTime = getTime();
+                                      if(currentTime - self.lastJumpTime > 2000) // Jump every 2 seconds
+                                      {
+                                          iPrintlnBold(self.name + " HUNTER performing jump at camp waypoint " + self.campWaypoint);
+                                          self setBotStance("jump");
+                                          self.lastJumpTime = currentTime;
+                                      }
+                                      else
+                                      {
+                                          iPrintlnBold(self.name + " HUNTER JUMP COOLDOWN: waiting " + (2000 - (currentTime - self.lastJumpTime)) + "ms more");
+                                      }
                                       break;
                                       
                                   case "crouch":
@@ -1625,7 +1777,6 @@ hunter_bot_logic()
                  return;
              }
          }
-        
         // Otherwise move to camp spot using A* pathfinding
         self hunter_move_to_camp();
     }
@@ -1652,43 +1803,196 @@ hunter_move_to_camp()
     if(!isDefined(self.currentWaypoint) || self.currentWaypoint == -1)
     {
         // Fallback to direct movement to camp
-        if(isDefined(level.waypoints[self.campWaypoint]))
+        if(isDefined(level.waypoints[self.campWaypoint]) && isDefined(level.waypoints[self.campWaypoint].origin))
         {
             waypointPos = level.waypoints[self.campWaypoint].origin;
-            targetVector = waypointPos - self.origin;
-            if(isDefined(targetVector))
+            if(isDefined(waypointPos))
             {
-                targetAngles = vectorToAngles(targetVector);
-                self setPlayerAngles(targetAngles);
+                targetVector = waypointPos - self.origin;
+                if(isDefined(targetVector))
+                {
+                    targetAngles = vectorToAngles(targetVector);
+                    self setPlayerAngles(targetAngles);
+                }
+                self setWalkDir("forward");
             }
-            self setWalkDir("forward");
         }
         return;
     }
     
-    // Use A* pathfinding to get next waypoint
-    nextWp = self getway(self.currentWaypoint, self.campWaypoint);
+    // Check if we're at the camp waypoint and need to apply waypoint types
+    if(isDefined(self.campWaypoint) && isDefined(level.waypoints[self.campWaypoint]))
+    {
+        campDist = distancesquared(self.origin, level.waypoints[self.campWaypoint].origin);
+        if(campDist < 10000) // Within 100 units of camp waypoint
+        {
+            waypointType = self get_waypoint_type_at_position(level.waypoints[self.campWaypoint].origin);
+            iPrintlnBold(self.name + " HUNTER_CAMP_CHECK: at camp waypoint " + self.campWaypoint + ", waypointType=" + waypointType + ", campDist=" + campDist);
+            
+            if(isDefined(waypointType))
+            {
+                currentStance = self getStance();
+                targetStance = "";
+                
+                switch(waypointType)
+                {
+                    case "jump":
+                        targetStance = "jump";
+                        iPrintlnBold(self.name + " HUNTER_CAMP_CHECK: JUMP WAYPOINT DETECTED at camp waypoint " + self.campWaypoint);
+                        
+                        // For jump waypoints, we need to actually make the bot jump
+                        if(!isDefined(self.lastJumpTime))
+                            self.lastJumpTime = 0;
+                        
+                        currentTime = getTime();
+                        if(currentTime - self.lastJumpTime > 2000) // Jump every 2 seconds
+                        {
+                            iPrintlnBold(self.name + " HUNTER_CAMP_CHECK: performing jump at camp waypoint " + self.campWaypoint);
+                            self setBotStance("jump");
+                            self.lastJumpTime = currentTime;
+                        }
+                        else
+                        {
+                            iPrintlnBold(self.name + " HUNTER_CAMP_CHECK: JUMP COOLDOWN: waiting " + (2000 - (currentTime - self.lastJumpTime)) + "ms more");
+                        }
+                        break;
+                        
+                    case "crouch":
+                        targetStance = "crouch";
+                        break;
+                        
+                    case "prone":
+                        targetStance = "prone";
+                        break;
+                        
+                    case "stand":
+                    default:
+                        targetStance = "stand";
+                        break;
+                }
+                
+                // Apply the stance if it's different from current
+                if(targetStance != "" && currentStance != targetStance)
+                {
+                    self setBotStance(targetStance);
+                    iPrintlnBold(self.name + " HUNTER_CAMP_CHECK: changed stance from " + currentStance + " to " + targetStance);
+                }
+            }
+        }
+    }
     
-    if(isDefined(nextWp) && nextWp != -1 && isDefined(level.waypoints[nextWp]))
+    // Use A* pathfinding to get next waypoint
+    //nextWp = self getway(self.currentWaypoint, self.campWaypoint);
+    self.currentStaticWp = getway(self.currentWaypoint, self.campWaypoint);
+    
+    if(isDefined(self.currentStaticWp) && self.currentStaticWp != -1 && isDefined(level.waypoints[self.currentStaticWp]))
     {
         // Move to the next waypoint in the A* path
-        waypointPos = level.waypoints[nextWp].origin;
-        self move_to_waypoint_position(waypointPos);
+        waypointPos = level.waypoints[self.currentStaticWp].origin;
+        
+        // Check if we're close enough to the waypoint
+        dist = distancesquared(self.origin, waypointPos);
+        if(dist < 2500) // Close to waypoint
+        {
+            // Check for waypoint type and apply it continuously
+            waypointType = self get_waypoint_type_at_position(waypointPos);
+            iPrintlnBold(self.name + " HUNTER_MOVE_TO_CAMP: at waypoint " + self.currentStaticWp + ", waypointType=" + waypointType + ", dist=" + dist);
+            
+            if(isDefined(waypointType))
+            {
+                currentStance = self getStance();
+                targetStance = "";
+                
+                switch(waypointType)
+                {
+                    case "jump":
+                        targetStance = "jump";
+                        iPrintlnBold(self.name + " HUNTER_MOVE_TO_CAMP: JUMP WAYPOINT DETECTED at waypoint " + self.currentStaticWp);
+                        
+                        // For jump waypoints, we need to actually make the bot jump
+                        if(!isDefined(self.lastJumpTime))
+                            self.lastJumpTime = 0;
+                        
+                        currentTime = getTime();
+                        if(currentTime - self.lastJumpTime > 2000) // Jump every 2 seconds
+                        {
+                            iPrintlnBold(self.name + " HUNTER_MOVE_TO_CAMP: performing jump at waypoint " + self.currentStaticWp);
+                            self setBotStance("jump");
+                            self.lastJumpTime = currentTime;
+                        }
+                        else
+                        {
+                            iPrintlnBold(self.name + " HUNTER_MOVE_TO_CAMP: JUMP COOLDOWN: waiting " + (2000 - (currentTime - self.lastJumpTime)) + "ms more");
+                        }
+                        break;
+                        
+                    case "crouch":
+                        targetStance = "crouch";
+                        break;
+                        
+                    case "prone":
+                        targetStance = "prone";
+                        break;
+                        
+                    case "stand":
+                    default:
+                        targetStance = "stand";
+                        break;
+                }
+                
+                // Apply the stance if it's different from current
+                if(targetStance != "" && currentStance != targetStance)
+                {
+                    self setBotStance(targetStance);
+                    iPrintlnBold(self.name + " HUNTER_MOVE_TO_CAMP: changed stance from " + currentStance + " to " + targetStance);
+                }
+            }
+            
+            // Only update current waypoint if we're at the camp waypoint, otherwise keep checking waypoint types
+            if(self.currentStaticWp == self.campWaypoint)
+            {
+                self.currentWaypoint = self.currentStaticWp;
+                return;
+            }
+            else
+            {
+                // We're at an intermediate waypoint, update it and continue
+                self.currentWaypoint = self.currentStaticWp;
+            }
+        }
+        
+        // Face the waypoint and move towards it
+        targetVector = waypointPos - self.origin;
+        if(isDefined(targetVector))
+        {
+            targetAngles = vectorToAngles(targetVector);
+            
+            // Only change direction if the difference is significant (prevents rapid direction changes)
+            currentAngles = self getPlayerAngles();
+            angleDiff = targetAngles[1] - currentAngles[1];
+            
+            // Normalize angle difference to be between -180 and 180
+            while(angleDiff > 180)
+                angleDiff = angleDiff - 360;
+            while(angleDiff < -180)
+                angleDiff = angleDiff + 360;
+            
+            // Calculate absolute value manually
+            if(angleDiff < 0)
+                angleDiff = 0 - angleDiff;
+                
+            if(angleDiff > 15) // Only change direction if difference is more than 15 degrees
+            {
+                self setPlayerAngles(targetAngles);
+            }
+        }
+        
+        self setWalkDir("forward");
     }
     else
     {
-        // No path found, move directly towards camp
-        if(isDefined(level.waypoints[self.campWaypoint]))
-        {
-            waypointPos = level.waypoints[self.campWaypoint].origin;
-            targetVector = waypointPos - self.origin;
-            if(isDefined(targetVector))
-            {
-                targetAngles = vectorToAngles(targetVector);
-                self setPlayerAngles(targetAngles);
-            }
-            self setWalkDir("forward");
-        }
+        // No path found, select a different camp waypoint
+        self select_alternative_camp_route();
     }
 }
 
@@ -1700,7 +2004,17 @@ hunter_move_to_camp()
 get_waypoint_type_at_position(targetPos)
 {
     if(!isDefined(targetPos) || !isDefined(level.waypoints) || level.waypointCount == 0)
+    {
+        iPrintlnBold("get_waypoint_type_at_position: Invalid parameters - targetPos=" + targetPos + ", waypoints=" + isDefined(level.waypoints) + ", count=" + level.waypointCount);
         return undefined;
+    }
+    
+    // Debug: show what position we're checking
+    if(!isDefined(self.lastTypeDebug) || getTime() - self.lastTypeDebug > 3000)
+    {
+        iPrintlnBold("get_waypoint_type_at_position: Checking position " + targetPos + " for waypoint type");
+        self.lastTypeDebug = getTime();
+    }
     
     // Find the waypoint closest to the target position
     nearestWaypoint = -1;
@@ -1752,8 +2066,8 @@ get_waypoint_type_at_position(targetPos)
         }
     }
     
-    return undefined;
-}
+        return undefined;
+    }
 
 // Find nearest hunter for zombie (any hunter, not just visible ones)
 find_nearest_hunter()
@@ -1773,9 +2087,9 @@ find_nearest_hunter()
         {
             dist = distancesquared(self.origin, player.origin) / 100; // Scale down for player finding
             if(dist < minDist)
-            {
-                minDist = dist;
-                nearest = player;
+                {
+                    minDist = dist;
+                    nearest = player;
             }
         }
     }
@@ -1835,6 +2149,48 @@ find_random_camp_waypoint()
     return result;
 }
 
+// Select alternative camp route when current path fails
+select_alternative_camp_route()
+{
+    // Only change camp waypoint if it's been a while since last change
+    if(!isDefined(self.lastCampChange) || getTime() - self.lastCampChange > 30000) // 30 seconds
+    {
+        // Try to find a different camp waypoint
+        attempts = 0;
+        maxAttempts = 10;
+        
+        while(attempts < maxAttempts)
+        {
+            newCampWaypoint = self find_random_camp_waypoint();
+            
+            // Check if we can find a path to this new camp waypoint
+            if(isDefined(self.currentWaypoint) && self.currentWaypoint != -1)
+            {
+                testPath = self getway(self.currentWaypoint, newCampWaypoint);
+                if(isDefined(testPath) && testPath != -1)
+                {
+                    // Found a valid path, use this camp waypoint
+                    self.campWaypoint = newCampWaypoint;
+                    self.lastCampChange = getTime();
+                    iPrintlnBold("Bot " + self.name + " selected alternative camp route: " + newCampWaypoint);
+                    return;
+                }
+            }
+            
+            attempts++;
+        }
+        
+        // If no valid path found after max attempts, just pick a random one
+        self.campWaypoint = self find_random_camp_waypoint();
+        self.lastCampChange = getTime();
+        iPrintlnBold("Bot " + self.name + " no valid path found, picked random camp: " + self.campWaypoint);
+    }
+    else
+    {
+        iPrintlnBold("Bot " + self.name + " path failed but too soon to change camp waypoint");
+    }
+}
+
 // Move to specific waypoint
 move_to_waypoint(waypointIndex)
 {
@@ -1875,11 +2231,19 @@ move_to_waypoint(waypointIndex)
          
          if (self.pers["team"] == "allies")
          {
-             // Only pick new camp spot if we're really stuck and can't reach current one
+             // Only pick new camp spot if we've been stuck for a very long time
+             if(!isDefined(self.lastCampChange) || getTime() - self.lastCampChange > 30000) // 30 seconds
+             {
              self.campWaypoint = self find_random_camp_waypoint();
-             iPrintlnBold("Bot " + self.name + " camp waypoint timeout, picking new camp spot");
-             self.waypointStartTime = getTime();
-             return;
+                 self.lastCampChange = getTime();
+                 iPrintlnBold("Bot " + self.name + " camp waypoint timeout after 30s, picking new camp spot");
+         }
+         else
+         {
+                 iPrintlnBold("Bot " + self.name + " camp waypoint timeout, but too soon to change camp spot");
+         }
+         self.waypointStartTime = getTime();
+         return;
          }
          // Zombies don't use waypoint timeout - let A* pathfinding handle movement
      }
@@ -1898,7 +2262,7 @@ move_to_waypoint(waypointIndex)
           return;
       }
       
-                          // If we're very close to the waypoint, just move forward without path checking
+             // If we're very close to the waypoint, just move forward without path checking
                if (dist < 100) // Very close to waypoint (100 units squared / 100)
        {
            if (self.pers["team"] == "allies" && isDefined(self.inCombat) && self.inCombat)
@@ -1954,7 +2318,7 @@ move_to_waypoint(waypointIndex)
            }
        }
        
-              // For hunters at camp spots, be extremely lenient with path checking
+       // For hunters at camp spots, be extremely lenient with path checking
        if (self.pers["team"] == "allies" && dist < 225) // Hunter close to camp spot (150 units squared / 100)
        {
            if (self.pers["team"] == "allies" && isDefined(self.inCombat) && self.inCombat)
@@ -2105,9 +2469,17 @@ move_to_waypoint(waypointIndex)
          // If path is blocked, pick a new waypoint instead of just strafing
          if (self.pers["team"] == "allies")
          {
-             // Only pick new camp spot if path is completely blocked
-             self.campWaypoint = self find_random_camp_waypoint();
-             iPrintlnBold("Bot " + self.name + " path to camp blocked, picking new camp spot");
+             // Only pick new camp spot if path is completely blocked and it's been a while
+             if(!isDefined(self.lastCampChange) || getTime() - self.lastCampChange > 30000) // 30 seconds
+             {
+                 self.campWaypoint = self find_random_camp_waypoint();
+                 self.lastCampChange = getTime();
+                 iPrintlnBold("Bot " + self.name + " path to camp blocked after 30s, picking new camp spot");
+             }
+             else
+             {
+                 iPrintlnBold("Bot " + self.name + " path to camp blocked, but too soon to change camp spot");
+             }
          }
          // Zombies don't use path blocking fallback - let A* pathfinding handle movement
      }
@@ -2125,10 +2497,10 @@ GetNearestStaticWaypoint(pos)
 	nearestDistance = 9999999999;
   
 	for(i = 0; i < level.waypointCount; i++)
-	{
-		if(!isDefined(level.waypoints[i]) || !isDefined(level.waypoints[i].origin))
-			continue;
-			
+        {
+            if(!isDefined(level.waypoints[i]) || !isDefined(level.waypoints[i].origin))
+                continue;
+                
 		dist = distancesquared(pos, level.waypoints[i].origin) / 100; // Scale down for waypoint finding
 		if(dist < nearestDistance)
 		{
@@ -2182,5 +2554,5 @@ bot_unlimited_ammo_loop()
         self setWeaponSlotClipAmmo("primary", 999);
         
         wait 0.05; // Check every second
-    }
-}
+     }
+       }
